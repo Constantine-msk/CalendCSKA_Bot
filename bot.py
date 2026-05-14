@@ -13,8 +13,7 @@ BOT_TOKEN = "8635943328:AAGWbMnRWXTcrxgF_BWuKbkJ3ZdOMYh6Qmo"  # ЗАМЕНИ Н�
 
 # ========== НАСТРОЙКИ ==========
 # Ссылка на CSV-файл в твоём репозитории (RAW)
-CSV_URL = "https://raw.githubusercontent.com/Constantine-msk/cskabot/main/schedule.csv"
-
+CSV_URL = "https://raw.githubusercontent.com/Constantine-msk/CalendCSKA_Bot/main/schedule.csv"
 logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
 logger = logging.getLogger(__name__)
 
