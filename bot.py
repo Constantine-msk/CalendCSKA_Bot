@@ -3,18 +3,21 @@ import requests
 import csv
 from io import StringIO
 from datetime import datetime, timedelta
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 # ========== ТОКЕН БОТА ==========
-BOT_TOKEN = "8635943328:AAGWbMnRWXTcrxgF_BWuKbkJ3ZdOMYh6Qmo"  # ЗАМЕНИ НА РЕАЛЬНЫЙ ТОКЕН!
+BOT_TOKEN = "8635943328:AAGWbMnRWXTcrxgF_BWuKbkJ3ZdOMYh6Qmo"
 
 # ========== НАСТРОЙКИ ==========
-# Ссылка на CSV-файл в твоём репозитории (RAW)
 CSV_URL = "https://raw.githubusercontent.com/Constantine-msk/CalendCSKA_Bot/main/schedule.csv"
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
+
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
 # Названия для кнопок
@@ -30,7 +33,7 @@ SPORT_NAMES = {
     "BF": "🏖️ Пляжный футбол",
 }
 
-# ========== ЗАГРУЗКА РАСПИСАНИЯ ИЗ CSV ==========
+# ========== ЗАГРУЗКА РАСПИСАНИЯ ==========
 def get_matches():
     """Скачивает CSV с GitHub и возвращает список матчей"""
     matches = []
@@ -39,13 +42,12 @@ def get_matches():
     try:
         response = requests.get(CSV_URL)
         response.raise_for_status()
+        response.encoding = 'utf-8'
         
-        # Читаем CSV
         csv_content = StringIO(response.text)
         reader = csv.DictReader(csv_content)
         
         for row in reader:
-            # Пропускаем неактивные
             if row.get("active", "").upper() != "TRUE":
                 continue
             
@@ -80,7 +82,7 @@ def get_matches():
                     "notes": row.get("notes", ""),
                 })
             except Exception as e:
-                logger.warning(f"Ошибка в строке: {row} — {e}")
+                logger.warning(f"Ошибка в строке: {e}")
                 continue
         
         logger.info(f"Загружено {len(matches)} матчей")
@@ -100,7 +102,11 @@ def format_match(match):
     if time_str == "00:00":
         time_str = "Время уточняется"
     
-    location_parts = [p for p in [match.get("city"), match.get("stadium")] if p]
+    location_parts = []
+    if match.get("city"):
+        location_parts.append(match["city"])
+    if match.get("stadium"):
+        location_parts.append(match["stadium"])
     location_str = ", ".join(location_parts) if location_parts else "Место уточняется"
     
     if match["boycott"] == "full":
@@ -110,7 +116,12 @@ def format_match(match):
     else:
         status = "✅ Идем на стадион!"
     
-    day_word = "день" if days == 1 else "дня" if days in [2,3,4] else "дней"
+    if days == 1:
+        day_word = "день"
+    elif days in [2, 3, 4]:
+        day_word = "дня"
+    else:
+        day_word = "дней"
     
     text = (
         f"{home_away}\n"
@@ -127,57 +138,149 @@ def format_match(match):
         text += f"\n📝 {match['notes']}"
     return text
 
+# ========== КЛАВИАТУРА ==========
+def get_main_keyboard():
+    """Главная клавиатура (кнопки под сообщением)"""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("📅 Ближайшие матчи", callback_data="next_all")],
+        [InlineKeyboardButton("📋 Мои подписки", callback_data="my_subs")],
+        [InlineKeyboardButton("➕ Подписаться на команду", callback_data="subscribe_menu")],
+    ])
+
 # ========== КОМАНДЫ БОТА ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [[InlineKeyboardButton(name, callback_data=f"sub_{code}")] for code, name in SPORT_NAMES.items()]
-    keyboard.append([InlineKeyboardButton("📋 Мои подписки", callback_data="my_subs")])
-    keyboard.append([InlineKeyboardButton("📅 Ближайшие матчи", callback_data="next_all")])
+    """Главное меню"""
     await update.message.reply_text(
         "🥅 **ЦСКА Бот**\n\n"
-        "Выбери команду, чтобы подписаться на напоминания:\n"
-        "• Дома → за 7 и 1 день, и в день матча\n"
-        "• В гостях → за 14, 1 день и в день матча",
+        "Я буду присылать напоминания о матчах ЦСКА:\n"
+        "• 🏠 Домашние → за 7 дней, за 1 день и в день матча\n"
+        "• ✈️ Гостевые → за 14 дней, за 1 день и в день матча\n\n"
+        "❌ Матчи с бойкотом отмечены особо.\n\n"
+        "Выбери действие:",
         parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=get_main_keyboard()
     )
 
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработка всех кнопок"""
     query = update.callback_query
     await query.answer()
     data = query.data
     user_id = update.effective_user.id
     
-    if data.startswith("sub_"):
+    # Инициализация хранилища подписок
+    if "subscriptions" not in context.bot_data:
+        context.bot_data["subscriptions"] = {}
+    if user_id not in context.bot_data["subscriptions"]:
+        context.bot_data["subscriptions"][user_id] = set()
+    
+    # ===== ГЛАВНОЕ МЕНЮ =====
+    if data == "main_menu":
+        await query.edit_message_text(
+            "🥅 **Главное меню**\n\nВыберите действие:",
+            parse_mode="Markdown",
+            reply_markup=get_main_keyboard()
+        )
+    
+    # ===== МЕНЮ ПОДПИСКИ =====
+    elif data == "subscribe_menu":
+        keyboard = []
+        for code, name in SPORT_NAMES.items():
+            if code in context.bot_data["subscriptions"][user_id]:
+                name = f"✅ {name}"
+            keyboard.append([InlineKeyboardButton(name, callback_data=f"toggle_{code}")])
+        keyboard.append([InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")])
+        
+        await query.edit_message_text(
+            "📋 **Выбери команду:**\n\n"
+            "✅ — уже подписан\n"
+            "Нажми на команду, чтобы подписаться или отписаться.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    
+    # ===== ПОДПИСАТЬ/ОТПИСАТЬСЯ =====
+    elif data.startswith("toggle_"):
         sport_code = data.split("_")[1]
-        if "subscriptions" not in context.bot_data:
-            context.bot_data["subscriptions"] = {}
-        if user_id not in context.bot_data["subscriptions"]:
-            context.bot_data["subscriptions"][user_id] = set()
-        context.bot_data["subscriptions"][user_id].add(sport_code)
-        await query.edit_message_text(f"✅ Вы подписались на {SPORT_NAMES[sport_code]}")
-    
-    elif data == "my_subs":
-        subs = context.bot_data.get("subscriptions", {}).get(user_id, set())
-        if subs:
-            text = "📋 **Ваши подписки:**\n" + "\n".join(f"• {SPORT_NAMES[code]}" for code in subs)
+        subs = context.bot_data["subscriptions"][user_id]
+        
+        if sport_code in subs:
+            subs.remove(sport_code)
+            action = "отписался от"
         else:
-            text = "❌ Вы ни на что не подписаны. Нажмите /start"
-        await query.edit_message_text(text, parse_mode="Markdown")
+            subs.add(sport_code)
+            action = "подписался на"
+        
+        keyboard = []
+        for code, name in SPORT_NAMES.items():
+            if code in subs:
+                name = f"✅ {name}"
+            keyboard.append([InlineKeyboardButton(name, callback_data=f"toggle_{code}")])
+        keyboard.append([InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")])
+        
+        subs_text = "\n".join(f"• {SPORT_NAMES[code]}" for code in subs) if subs else "Пока нет"
+        
+        await query.edit_message_text(
+            f"✅ Вы {action} {SPORT_NAMES[sport_code]}\n\n"
+            f"**Ваши подписки:**\n{subs_text}",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
     
+    # ===== МОИ ПОДПИСКИ =====
+    elif data == "my_subs":
+        subs = context.bot_data["subscriptions"][user_id]
+        if subs:
+            text = "📋 **Ваши подписки:**\n\n" + "\n".join(f"• {SPORT_NAMES[code]}" for code in subs)
+            text += "\n\nЧтобы отписаться, нажмите «Подписаться на команду» и выберите команду с ✅"
+        else:
+            text = "❌ Вы пока ни на что не подписаны."
+        
+        keyboard = [
+            [InlineKeyboardButton("➕ Подписаться", callback_data="subscribe_menu")],
+            [InlineKeyboardButton("🗑 Отписаться от всех", callback_data="unsubscribe_all")],
+            [InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")],
+        ]
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+    
+    # ===== ОТПИСАТЬСЯ ОТ ВСЕХ =====
+    elif data == "unsubscribe_all":
+        context.bot_data["subscriptions"][user_id].clear()
+        await query.edit_message_text(
+            "🗑 Вы отписались от **всех** команд.\n\n"
+            "Чтобы снова подписаться, нажмите «Подписаться на команду».",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("➕ Подписаться", callback_data="subscribe_menu")],
+                [InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")],
+            ])
+        )
+    
+    # ===== БЛИЖАЙШИЕ МАТЧИ =====
     elif data == "next_all":
         matches = get_matches()
         if not matches:
-            await query.edit_message_text("❌ Нет ближайших матчей")
-            return
-        text = "📅 **Ближайшие матчи:**\n\n"
-        for match in matches[:10]:
-            days = (match["date"] - datetime.now()).days
-            emoji = "❌" if match["boycott"] == "full" else "📺" if match["boycott"] == "partial" else "✅"
-            home_away = "🏠" if match["location_type"] == "home" else "✈️"
-            time_str = match["date"].strftime("%H:%M") if match["date"].strftime("%H:%M") != "00:00" else ""
-            text += f"{home_away} {match['date'].strftime('%d.%m')} {time_str} {match['team_name']} vs {match['opponent']} {emoji}\n"
-        await query.edit_message_text(text, parse_mode="Markdown")
+            text = "❌ Нет ближайших матчей"
+        else:
+            text = "📅 **Ближайшие матчи:**\n\n"
+            for match in matches[:10]:
+                days = (match["date"] - datetime.now()).days
+                if match["boycott"] == "full":
+                    emoji = "❌"
+                elif match["boycott"] == "partial":
+                    emoji = "📺"
+                else:
+                    emoji = "✅"
+                home_away = "🏠" if match["location_type"] == "home" else "✈️"
+                time_str = match["date"].strftime("%H:%M")
+                if time_str == "00:00":
+                    time_str = ""
+                text += f"{home_away} {match['date'].strftime('%d.%m')} {time_str} {match['team_name']} vs {match['opponent']} {emoji}\n"
+        
+        keyboard = [[InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")]]
+        await query.edit_message_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
+# ========== НАПОМИНАНИЯ ==========
 async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
     """Проверяет и отправляет напоминания"""
     logger.info("Проверка напоминаний...")
@@ -193,14 +296,13 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
         if match["boycott"] == "full":
             continue
         
-        # Правила напоминаний
         need_remind = False
         remind_type = ""
         
-        if days == 0:  # В день матча
+        if days == 0:
             need_remind = True
             remind_type = "day0"
-        elif days == 1:  # За 1 день
+        elif days == 1:
             need_remind = True
             remind_type = "day1"
         elif match["location_type"] == "home" and days == 7:
@@ -217,7 +319,6 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
         if reminder_id in context.bot_data["sent_reminders"]:
             continue
         
-        # Отправляем всем подписанным
         for user_id, subs in subscriptions.items():
             if match["sport_code"] in subs:
                 try:
@@ -228,13 +329,64 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
                     )
                     logger.info(f"Отправлено {user_id}: {reminder_id}")
                 except Exception as e:
-                    logger.error(f"Ошибка {user_id}: {e}")
+                    logger.error(f"Ошибка отправки {user_id}: {e}")
         
         context.bot_data["sent_reminders"].add(reminder_id)
 
+# ========== ЗАПУСК ==========
+async def set_bot_commands(app: Application):
+    """Устанавливает команды для меню Telegram"""
+    commands = [
+        BotCommand("start", "🚀 Показать главное меню"),
+        BotCommand("menu", "📋 Главное меню"),
+        BotCommand("my_matches", "📅 Мои ближайшие матчи (по подпискам)"),
+    ]
+    await app.bot.set_my_commands(commands)
+
+async def my_matches_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать только матчи по подпискам пользователя"""
+    user_id = update.effective_user.id
+    subs = context.bot_data.get("subscriptions", {}).get(user_id, set())
+    
+    if not subs:
+        await update.message.reply_text("❌ Вы ни на что не подписаны. Нажмите /start")
+        return
+    
+    all_matches = get_matches()
+    my_matches = [m for m in all_matches if m["sport_code"] in subs]
+    
+    if not my_matches:
+        await update.message.reply_text("❌ Нет ближайших матчей по вашим подпискам")
+        return
+    
+    text = "📅 **Ваши ближайшие матчи:**\n\n"
+    for match in my_matches[:10]:
+        days = (match["date"] - datetime.now()).days
+        if match["boycott"] == "full":
+            emoji = "❌"
+        elif match["boycott"] == "partial":
+            emoji = "📺"
+        else:
+            emoji = "✅"
+        home_away = "🏠" if match["location_type"] == "home" else "✈️"
+        time_str = match["date"].strftime("%H:%M")
+        if time_str == "00:00":
+            time_str = ""
+        text += f"{home_away} {match['date'].strftime('%d.%m')} {time_str} {match['team_name']} vs {match['opponent']} {emoji}\n"
+    
+    keyboard = [[InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")]]
+    await update.message.reply_text(text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
+async def menu_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Обработчик команды /menu"""
+    await start(update, context)
+
 def main():
     app = Application.builder().token(BOT_TOKEN).build()
+    
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("menu", menu_command))
+    app.add_handler(CommandHandler("my_matches", my_matches_command))
     app.add_handler(CallbackQueryHandler(button_handler))
     
     app.bot_data["subscriptions"] = {}
@@ -243,6 +395,8 @@ def main():
     scheduler = AsyncIOScheduler()
     scheduler.add_job(send_reminders, CronTrigger(hour=10, minute=0), args=[app])
     scheduler.start()
+    
+    app.post_init = set_bot_commands
     
     logger.info("Бот запущен!")
     app.run_polling()
