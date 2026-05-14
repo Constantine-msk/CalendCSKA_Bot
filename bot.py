@@ -5,7 +5,7 @@ from io import StringIO
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-from apscheduler.schedulers.asyncio import AsyncIOScheduler  # ← ИСПРАВЛЕНО!
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 # ========== ТОКЕН БОТА ==========
