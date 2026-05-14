@@ -5,11 +5,11 @@ from io import StringIO
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
-from apscheduler.schedulers.async_ import AsyncIOScheduler
+from apscheduler.schedulers.asyncio import AsyncIOScheduler  # ← ИСПРАВЛЕНО!
 from apscheduler.triggers.cron import CronTrigger
 
 # ========== ТОКЕН БОТА ==========
-BOT_TOKEN = "ТВОЙ_ТОКЕН_СЮДА"  # ЗАМЕНИ НА РЕАЛЬНЫЙ ТОКЕН!
+BOT_TOKEN = "8635943328:AAGWbMnRWXTcrxgF_BWuKbkJ3ZdOMYh6Qmo"  # ЗАМЕНИ НА РЕАЛЬНЫЙ ТОКЕН!
 
 # ========== НАСТРОЙКИ ==========
 # Ссылка на CSV-файл в твоём репозитории (RAW)
