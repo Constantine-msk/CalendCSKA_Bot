@@ -13,6 +13,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 # ========== ТОКЕН ==========
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = 125741486
 
 # ========== НАСТРОЙКИ ==========
 CSV_URL = "https://raw.githubusercontent.com/Constantine-msk/CalendCSKA_Bot/main/schedule.csv"
@@ -432,14 +433,157 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
 
         mark_reminder_sent(reminder_id)
 
+# ========== АДМИН ==========
+def admin_only(func):
+    """Декоратор — только для админа"""
+    async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE):
+        if update.effective_user.id != ADMIN_ID:
+            await update.message.reply_text("⛔ Нет доступа.")
+            return
+        return await func(update, context)
+    return wrapper
+
+@admin_only
+async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Статистика пользователей"""
+    conn = sqlite3.connect("bot.db")
+    total_users = conn.execute("SELECT COUNT(DISTINCT user_id) FROM subscriptions").fetchone()[0]
+    rows = conn.execute(
+        "SELECT sport_code, COUNT(*) as cnt FROM subscriptions GROUP BY sport_code ORDER BY cnt DESC"
+    ).fetchall()
+    conn.close()
+
+    text = f"📊 *Статистика*\n\nВсего пользователей с подписками: *{total_users}*\n\n*По командам:*\n"
+    for sport_code, cnt in rows:
+        name = SPORT_NAMES.get(sport_code, sport_code)
+        text += f"• {name}: {cnt}\n"
+
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+@admin_only
+async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Рассылка всем пользователям. Использование: /broadcast Текст сообщения"""
+    if not context.args:
+        await update.message.reply_text(
+            "Использование: `/broadcast Текст сообщения`\n\nПример:\n`/broadcast Сегодня хоккей в 19:00, приходите!`",
+            parse_mode="Markdown"
+        )
+        return
+
+    text = " ".join(context.args)
+    conn = sqlite3.connect("bot.db")
+    user_ids = [row[0] for row in conn.execute("SELECT DISTINCT user_id FROM subscriptions").fetchall()]
+    conn.close()
+
+    sent = 0
+    failed = 0
+    for user_id in user_ids:
+        try:
+            await context.bot.send_message(chat_id=user_id, text=f"📢 {text}")
+            sent += 1
+        except Exception as e:
+            logger.error(f"Broadcast error {user_id}: {e}")
+            failed += 1
+
+    await update.message.reply_text(
+        f"✅ Рассылка завершена\n\nОтправлено: {sent}\nОшибок: {failed}"
+    )
+
+@admin_only
+async def add_match_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Добавить матч вручную.
+    Использование: /add_match sport_code|opponent|date(YYYY-MM-DD)|time(HH:MM)|home/away|city|stadium|tournament|boycott|notes
+    Пример: /add_match HK|Динамо|2025-06-01|19:00|home|Москва|ЦСКА Арена|КХЛ|none|
+    """
+    if not context.args:
+        await update.message.reply_text(
+            "Использование:\n"
+            "`/add_match код|соперник|дата|время|дом/гость|город|стадион|турнир|бойкот|заметки`\n\n"
+            "Пример:\n"
+            "`/add_match HK|Динамо|2025-06-01|19:00|home|Москва|ЦСКА Арена|КХЛ|none|`\n\n"
+            "Коды видов спорта: MF, JF, HK, BG, VB, MG, ZHG, PF, BF\n"
+            "Бойкот: none / partial / full",
+            parse_mode="Markdown"
+        )
+        return
+
+    raw = " ".join(context.args)
+    parts = raw.split("|")
+    if len(parts) < 9:
+        await update.message.reply_text("❌ Неверный формат. Нужно минимум 9 полей через |")
+        return
+
+    try:
+        sport_code = parts[0].strip()
+        opponent = parts[1].strip()
+        date_str = parts[2].strip()
+        time_str = parts[3].strip()
+        location_type = parts[4].strip()
+        city = parts[5].strip()
+        stadium = parts[6].strip()
+        tournament = parts[7].strip()
+        boycott = parts[8].strip()
+        notes = parts[9].strip() if len(parts) > 9 else ""
+
+        team_name = SPORT_NAMES.get(sport_code, sport_code)
+
+        conn = sqlite3.connect("bot.db")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS manual_matches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sport_code TEXT,
+                team_name TEXT,
+                opponent TEXT,
+                date TEXT,
+                time TEXT,
+                location_type TEXT,
+                city TEXT,
+                stadium TEXT,
+                tournament TEXT,
+                boycott TEXT,
+                notes TEXT
+            )
+        """)
+        conn.execute(
+            "INSERT INTO manual_matches VALUES (NULL,?,?,?,?,?,?,?,?,?,?,?)",
+            (sport_code, team_name, opponent, date_str, time_str, location_type, city, stadium, tournament, boycott, notes)
+        )
+        conn.commit()
+        conn.close()
+
+        await update.message.reply_text(
+            f"✅ Матч добавлен!\n\n"
+            f"🏷 {team_name}\n"
+            f"🆚 {opponent}\n"
+            f"📅 {date_str} {time_str}\n"
+            f"📍 {city}, {stadium}\n"
+            f"🏆 {tournament}\n"
+            f"{'🏠 Дома' if location_type == 'home' else '✈️ В гостях'}"
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Ошибка: {e}")
+
 # ========== ЗАПУСК ==========
 async def set_bot_commands(app: Application):
     commands = [
-        BotCommand("start", "🚀 Показать главное меню"),
+        BotCommand("start", "🚀 Главное меню"),
         BotCommand("menu", "📋 Главное меню"),
-        BotCommand("my_matches", "📅 Мои ближайшие матчи (по подпискам)"),
+        BotCommand("my_matches", "📅 Мои ближайшие матчи"),
     ]
     await app.bot.set_my_commands(commands)
+
+    # Отдельные команды для админа
+    admin_commands = commands + [
+        BotCommand("stats", "📊 Статистика пользователей"),
+        BotCommand("broadcast", "📢 Рассылка всем"),
+        BotCommand("add_match", "➕ Добавить матч вручную"),
+    ]
+    from telegram import BotCommandScopeChat
+    await app.bot.set_my_commands(
+        admin_commands,
+        scope=BotCommandScopeChat(chat_id=ADMIN_ID)
+    )
 
 def main():
     init_db()
@@ -449,6 +593,9 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("menu", menu_command))
     app.add_handler(CommandHandler("my_matches", my_matches_command))
+    app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("broadcast", broadcast_command))
+    app.add_handler(CommandHandler("add_match", add_match_command))
     app.add_handler(CallbackQueryHandler(button_handler))
 
     # Встроенный планировщик, 10:00 по Москве
