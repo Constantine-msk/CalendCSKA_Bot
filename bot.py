@@ -3,8 +3,9 @@ import requests
 import csv
 import sqlite3
 import os
+import pytz
 from io import StringIO
-from datetime import datetime
+from datetime import datetime, time as dtime
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
@@ -397,7 +398,7 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
         need_remind = False
         remind_type = ""
 
-        if days == 0:
+        if match["date"].date() == now.date():
             need_remind = True
             remind_type = "day0"
         elif days == 1:
@@ -450,10 +451,11 @@ def main():
     app.add_handler(CommandHandler("my_matches", my_matches_command))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    # Встроенный планировщик вместо APScheduler
+    # Встроенный планировщик, 10:00 по Москве
+    moscow = pytz.timezone("Europe/Moscow")
     app.job_queue.run_daily(
         send_reminders,
-        time=datetime.strptime("10:00", "%H:%M").time()
+        time=dtime(10, 0, tzinfo=moscow)
     )
 
     app.post_init = set_bot_commands
