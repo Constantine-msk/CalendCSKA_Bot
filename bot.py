@@ -452,6 +452,19 @@ def admin_only(func):
     return wrapper
 
 @admin_only
+async def reset_reminders_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Сбросить все отправленные напоминания"""
+    conn = sqlite3.connect("/app/bot.db")
+    count = conn.execute("SELECT COUNT(*) FROM sent_reminders").fetchone()[0]
+    conn.execute("DELETE FROM sent_reminders")
+    conn.commit()
+    conn.close()
+    await update.message.reply_text(
+        f"✅ Сброшено {count} напоминаний.\n\n"
+        f"Завтра в 10:00 все актуальные напоминания отправятся заново."
+    )
+
+@admin_only
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Статистика пользователей"""
     conn = sqlite3.connect("/app/bot.db")
@@ -586,6 +599,7 @@ async def set_bot_commands(app: Application):
         BotCommand("stats", "📊 Статистика пользователей"),
         BotCommand("broadcast", "📢 Рассылка всем"),
         BotCommand("add_match", "➕ Добавить матч вручную"),
+        BotCommand("reset_reminders", "🔄 Сбросить отправленные напоминания"),
     ]
     from telegram import BotCommandScopeChat
     await app.bot.set_my_commands(
@@ -604,6 +618,7 @@ def main():
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("broadcast", broadcast_command))
     app.add_handler(CommandHandler("add_match", add_match_command))
+    app.add_handler(CommandHandler("reset_reminders", reset_reminders_command))
     app.add_handler(CallbackQueryHandler(button_handler))
 
     # Встроенный планировщик, 10:00 по Москве
