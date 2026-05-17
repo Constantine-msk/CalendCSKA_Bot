@@ -38,7 +38,7 @@ SPORT_NAMES = {
 
 # ========== БАЗА ДАННЫХ ==========
 def init_db():
-    conn = sqlite3.connect("bot.db")
+    conn = sqlite3.connect("/app/bot.db")
     conn.execute("""
         CREATE TABLE IF NOT EXISTS subscriptions (
             user_id INTEGER,
@@ -55,7 +55,7 @@ def init_db():
     conn.close()
 
 def get_user_subs(user_id):
-    conn = sqlite3.connect("bot.db")
+    conn = sqlite3.connect("/app/bot.db")
     rows = conn.execute(
         "SELECT sport_code FROM subscriptions WHERE user_id=?", (user_id,)
     ).fetchall()
@@ -63,7 +63,7 @@ def get_user_subs(user_id):
     return set(r[0] for r in rows)
 
 def toggle_sub(user_id, sport_code):
-    conn = sqlite3.connect("bot.db")
+    conn = sqlite3.connect("/app/bot.db")
     exists = conn.execute(
         "SELECT 1 FROM subscriptions WHERE user_id=? AND sport_code=?",
         (user_id, sport_code)
@@ -85,13 +85,13 @@ def toggle_sub(user_id, sport_code):
     return action
 
 def clear_user_subs(user_id):
-    conn = sqlite3.connect("bot.db")
+    conn = sqlite3.connect("/app/bot.db")
     conn.execute("DELETE FROM subscriptions WHERE user_id=?", (user_id,))
     conn.commit()
     conn.close()
 
 def get_all_subscriptions():
-    conn = sqlite3.connect("bot.db")
+    conn = sqlite3.connect("/app/bot.db")
     rows = conn.execute("SELECT user_id, sport_code FROM subscriptions").fetchall()
     conn.close()
     result = {}
@@ -100,7 +100,7 @@ def get_all_subscriptions():
     return result
 
 def is_reminder_sent(reminder_id):
-    conn = sqlite3.connect("bot.db")
+    conn = sqlite3.connect("/app/bot.db")
     exists = conn.execute(
         "SELECT 1 FROM sent_reminders WHERE reminder_id=?", (reminder_id,)
     ).fetchone()
@@ -108,7 +108,7 @@ def is_reminder_sent(reminder_id):
     return bool(exists)
 
 def mark_reminder_sent(reminder_id):
-    conn = sqlite3.connect("bot.db")
+    conn = sqlite3.connect("/app/bot.db")
     conn.execute("INSERT OR IGNORE INTO sent_reminders VALUES (?)", (reminder_id,))
     conn.commit()
     conn.close()
@@ -182,6 +182,12 @@ def get_matches():
         return []
 
 def format_match(match):
+    import locale
+    try:
+        locale.setlocale(locale.LC_TIME, "ru_RU.UTF-8")
+    except Exception:
+        pass
+
     now = datetime.now()
     days = (match["date"] - now).days
     home_away = "🏠 ДОМА" if match["location_type"] == "home" else "✈️ В ГОСТЯХ"
@@ -205,12 +211,14 @@ def format_match(match):
     else:
         status = "✅ Идем на стадион!"
 
-    if days == 1:
-        day_word = "день"
+    if days == 0:
+        days_str = "Сегодня! 🔥"
+    elif days == 1:
+        days_str = "1 день"
     elif days in [2, 3, 4]:
-        day_word = "дня"
+        days_str = f"{days} дня"
     else:
-        day_word = "дней"
+        days_str = f"{days} дней"
 
     text = (
         f"{home_away}\n"
@@ -220,7 +228,7 @@ def format_match(match):
         f"📅 {match['date'].strftime('%d.%m.%Y, %A')}\n"
         f"⏰ {time_str}\n"
         f"📍 {location_str}\n\n"
-        f"⏰ До матча: {days} {day_word}\n"
+        f"⏰ До матча: {days_str}\n"
         f"{status}"
     )
     if match.get("notes"):
@@ -446,7 +454,7 @@ def admin_only(func):
 @admin_only
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Статистика пользователей"""
-    conn = sqlite3.connect("bot.db")
+    conn = sqlite3.connect("/app/bot.db")
     total_users = conn.execute("SELECT COUNT(DISTINCT user_id) FROM subscriptions").fetchone()[0]
     rows = conn.execute(
         "SELECT sport_code, COUNT(*) as cnt FROM subscriptions GROUP BY sport_code ORDER BY cnt DESC"
@@ -471,7 +479,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text = " ".join(context.args)
-    conn = sqlite3.connect("bot.db")
+    conn = sqlite3.connect("/app/bot.db")
     user_ids = [row[0] for row in conn.execute("SELECT DISTINCT user_id FROM subscriptions").fetchall()]
     conn.close()
 
@@ -528,7 +536,7 @@ async def add_match_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         team_name = SPORT_NAMES.get(sport_code, sport_code)
 
-        conn = sqlite3.connect("bot.db")
+        conn = sqlite3.connect("/app/bot.db")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS manual_matches (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
