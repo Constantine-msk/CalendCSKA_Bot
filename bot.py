@@ -303,7 +303,7 @@ def get_main_keyboard():
         [InlineKeyboardButton("📅 Ближайшие матчи", callback_data="next_all")],
         [InlineKeyboardButton("📋 Мои подписки", callback_data="my_subs")],
         [InlineKeyboardButton("➕ Подписаться на команду", callback_data="subscribe_menu")],
-        [InlineKeyboardButton("📤 Поделиться ботом", callback_data="share")],
+        [InlineKeyboardButton("📤 Поделиться ботом", url="https://t.me/share/url?url=https://t.me/CalendCSKA_Bot&text=Бот+с+расписанием+матчей+ЦСКА+%F0%9F%94%B4%F0%9F%94%B5")],
         [InlineKeyboardButton("❤️ Поддержать бота", url=SBP_URL)],
     ])
 
