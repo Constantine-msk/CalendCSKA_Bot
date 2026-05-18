@@ -114,6 +114,56 @@ def mark_reminder_sent(reminder_id):
     conn.close()
 
 # ========== ЗАГРУЗКА РАСПИСАНИЯ ==========
+def get_manual_matches():
+    """Загружает матчи добавленные вручную через /add_match"""
+    matches = []
+    now = datetime.now()
+    try:
+        conn = sqlite3.connect("/app/bot.db")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS manual_matches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                sport_code TEXT, team_name TEXT, opponent TEXT,
+                date TEXT, time TEXT, location_type TEXT,
+                city TEXT, stadium TEXT, tournament TEXT,
+                boycott TEXT, notes TEXT
+            )
+        """)
+        rows = conn.execute("SELECT * FROM manual_matches").fetchall()
+        conn.close()
+
+        for row in rows:
+            _, sport_code, team_name, opponent, date_str, time_str, location_type, city, stadium, tournament, boycott, notes = row
+            try:
+                match_date = datetime.strptime(date_str, "%Y-%m-%d")
+                if time_str and time_str.strip():
+                    try:
+                        match_date = match_date.replace(
+                            hour=int(time_str[:2]), minute=int(time_str[3:5])
+                        )
+                    except Exception:
+                        pass
+                if match_date < now:
+                    continue
+                matches.append({
+                    "match_id": f"manual_{date_str}_{opponent}_{location_type}",
+                    "sport_code": sport_code,
+                    "team_name": team_name,
+                    "opponent": opponent,
+                    "date": match_date,
+                    "location_type": location_type,
+                    "city": city or "",
+                    "stadium": stadium or "",
+                    "tournament": tournament or "",
+                    "boycott": boycott or "none",
+                    "notes": notes or "",
+                })
+            except Exception as e:
+                logger.warning(f"Ошибка в ручном матче: {e}")
+    except Exception as e:
+        logger.error(f"Ошибка загрузки ручных матчей: {e}")
+    return matches
+
 def get_matches():
     matches = []
     now = datetime.now()
@@ -148,7 +198,6 @@ def get_matches():
                     except Exception:
                         pass
 
-                # Пропускаем уже прошедшие матчи
                 if match_date < now:
                     continue
 
@@ -174,12 +223,17 @@ def get_matches():
                 logger.warning(f"Ошибка в строке: {e}")
                 continue
 
-        logger.info(f"Загружено {len(matches)} матчей")
-        return sorted(matches, key=lambda x: x["date"])
+        logger.info(f"Загружено {len(matches)} матчей из CSV")
 
     except Exception as e:
         logger.error(f"Ошибка загрузки CSV: {e}")
-        return []
+
+    # Добавляем ручные матчи
+    manual = get_manual_matches()
+    logger.info(f"Загружено {len(manual)} ручных матчей")
+    matches.extend(manual)
+
+    return sorted(matches, key=lambda x: x["date"])
 
 def format_match(match):
     import locale
@@ -196,6 +250,8 @@ def format_match(match):
     time_str = match["date"].strftime("%H:%M")
     if time_str == "00:00":
         time_str = "Время уточняется"
+    else:
+        time_str += " (МСК)"
 
     location_parts = []
     if match.get("city"):
@@ -211,7 +267,10 @@ def format_match(match):
     else:
         status = "✅ Идем на стадион!"
 
-    if days == 0:
+    hours_left = (match["date"] - now).total_seconds() / 3600
+    if hours_left <= 3.5:
+        days_str = "Уже через 3 часа! 🔥"
+    elif days == 0:
         days_str = "Сегодня! 🔥"
     elif days == 1:
         days_str = "1 день"
@@ -235,12 +294,17 @@ def format_match(match):
         text += f"\n📝 {match['notes']}"
     return text
 
+SBP_URL = "https://www.tinkoff.ru/rm/r_xRlEDFlILw.UuuGAqCeAk/0JWTr91979"
+BOT_URL = "https://t.me/CalendCSKA_Bot"
+
 # ========== КЛАВИАТУРА ==========
 def get_main_keyboard():
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("📅 Ближайшие матчи", callback_data="next_all")],
         [InlineKeyboardButton("📋 Мои подписки", callback_data="my_subs")],
         [InlineKeyboardButton("➕ Подписаться на команду", callback_data="subscribe_menu")],
+        [InlineKeyboardButton("📤 Поделиться ботом", callback_data="share")],
+        [InlineKeyboardButton("❤️ Поддержать бота", url=SBP_URL)],
     ])
 
 # ========== КОМАНДЫ ==========
@@ -366,6 +430,20 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
         )
 
+    elif data == "share":
+        share_text = (
+            "📤 *Поделиться ботом*\n\n"
+            "Отправь эту ссылку друзьям-болельщикам ЦСКА:\n\n"
+            f"👉 {BOT_URL}\n\n"
+            "Бот пришлёт напоминания о матчах всех армейских команд — "
+            "футбол, хоккей, баскетбол, волейбол и другие."
+        )
+        keyboard = [
+            [InlineKeyboardButton("📤 Поделиться", url=f"https://t.me/share/url?url={BOT_URL}&text=Бот+с+расписанием+матчей+ЦСКА")],
+            [InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")],
+        ]
+        await query.edit_message_text(share_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
+
     elif data == "next_all":
         matches = get_matches()
         if not matches:
@@ -407,9 +485,14 @@ async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
         need_remind = False
         remind_type = ""
 
-        if match["date"].date() == now.date():
+        hours_left = diff.total_seconds() / 3600
+
+        if match["date"].date() == now.date() and hours_left > 3:
             need_remind = True
             remind_type = "day0"
+        elif 2.5 <= hours_left <= 3.5:
+            need_remind = True
+            remind_type = "3h"
         elif days == 1:
             need_remind = True
             remind_type = "day1"
@@ -621,12 +704,8 @@ def main():
     app.add_handler(CommandHandler("reset_reminders", reset_reminders_command))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    # Встроенный планировщик, 10:00 по Москве
-    moscow = pytz.timezone("Europe/Moscow")
-    app.job_queue.run_daily(
-        send_reminders,
-        time=dtime(10, 0, tzinfo=moscow)
-    )
+    # Проверка каждый час — для напоминаний в день матча и за 3 часа
+    app.job_queue.run_repeating(send_reminders, interval=3600, first=10)
 
     app.post_init = set_bot_commands
 
