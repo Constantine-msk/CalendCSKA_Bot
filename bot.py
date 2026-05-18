@@ -464,65 +464,67 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 # ========== НАПОМИНАНИЯ ==========
-async def send_reminders(context: ContextTypes.DEFAULT_TYPE):
-    logger.info("Проверка напоминаний...")
+async def _send_to_subscribers(context, match, remind_type, subscriptions):
+    """Отправляет напоминание всем подписчикам матча"""
+    reminder_id = f"{match['match_id']}_{remind_type}"
+    if is_reminder_sent(reminder_id):
+        return
+    for user_id, subs in subscriptions.items():
+        if match["sport_code"] in subs:
+            try:
+                await context.bot.send_message(
+                    chat_id=user_id,
+                    text=format_match(match),
+                    parse_mode="Markdown"
+                )
+                logger.info(f"Отправлено {user_id}: {reminder_id}")
+            except Exception as e:
+                logger.error(f"Ошибка отправки {user_id}: {e}")
+    mark_reminder_sent(reminder_id)
+
+async def send_reminders_daily(context: ContextTypes.DEFAULT_TYPE):
+    """Запускается в 10:00 МСК — напоминания за 14/7/1 день и в день матча"""
+    logger.info("Ежедневная проверка напоминаний...")
     matches = get_matches()
     subscriptions = get_all_subscriptions()
 
     for match in matches:
         now = datetime.now()
         diff = match["date"] - now
-
-        # Пропускаем прошедшие матчи
         if diff.total_seconds() < 0:
             continue
-
-        days = diff.days
-
         if match["boycott"] == "full":
             continue
 
-        need_remind = False
-        remind_type = ""
-
+        days = diff.days
         hours_left = diff.total_seconds() / 3600
 
         if match["date"].date() == now.date() and hours_left > 3:
-            need_remind = True
-            remind_type = "day0"
-        elif 2.5 <= hours_left <= 3.5:
-            need_remind = True
-            remind_type = "3h"
+            await _send_to_subscribers(context, match, "day0", subscriptions)
         elif days == 1:
-            need_remind = True
-            remind_type = "day1"
+            await _send_to_subscribers(context, match, "day1", subscriptions)
         elif match["location_type"] == "home" and days == 7:
-            need_remind = True
-            remind_type = "day7"
+            await _send_to_subscribers(context, match, "day7", subscriptions)
         elif match["location_type"] == "away" and days == 14:
-            need_remind = True
-            remind_type = "day14"
+            await _send_to_subscribers(context, match, "day14", subscriptions)
 
-        if not need_remind:
+async def send_reminders_3h(context: ContextTypes.DEFAULT_TYPE):
+    """Запускается каждый час — ловит момент за 3 часа до матча"""
+    logger.info("Проверка напоминаний за 3 часа...")
+    matches = get_matches()
+    subscriptions = get_all_subscriptions()
+
+    for match in matches:
+        now = datetime.now()
+        diff = match["date"] - now
+        if diff.total_seconds() < 0:
+            continue
+        if match["boycott"] == "full":
             continue
 
-        reminder_id = f"{match['match_id']}_{remind_type}"
-        if is_reminder_sent(reminder_id):
-            continue
-
-        for user_id, subs in subscriptions.items():
-            if match["sport_code"] in subs:
-                try:
-                    await context.bot.send_message(
-                        chat_id=user_id,
-                        text=format_match(match),
-                        parse_mode="Markdown"
-                    )
-                    logger.info(f"Отправлено {user_id}: {reminder_id}")
-                except Exception as e:
-                    logger.error(f"Ошибка отправки {user_id}: {e}")
-
-        mark_reminder_sent(reminder_id)
+        hours_left = diff.total_seconds() / 3600
+        if 2.5 <= hours_left <= 3.5:
+            await _send_to_subscribers(context, match, "3h", subscriptions)
 
 # ========== АДМИН ==========
 def admin_only(func):
@@ -704,8 +706,15 @@ def main():
     app.add_handler(CommandHandler("reset_reminders", reset_reminders_command))
     app.add_handler(CallbackQueryHandler(button_handler))
 
-    # Проверка каждый час — для напоминаний в день матча и за 3 часа
-    app.job_queue.run_repeating(send_reminders, interval=3600, first=10)
+    # Два планировщика:
+    # 1. В 10:00 МСК — напоминания за 7/14/1 день и в день матча
+    moscow = pytz.timezone("Europe/Moscow")
+    app.job_queue.run_daily(
+        send_reminders_daily,
+        time=dtime(10, 0, tzinfo=moscow)
+    )
+    # 2. Каждый час — напоминание за 3 часа до матча
+    app.job_queue.run_repeating(send_reminders_3h, interval=3600, first=60)
 
     app.post_init = set_bot_commands
 
