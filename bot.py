@@ -536,6 +536,58 @@ def admin_only(func):
         return await func(update, context)
     return wrapper
 
+
+@admin_only
+async def result_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Отправить результат матча подписчикам. /result код|соперник|счёт|комментарий"""
+    if not context.args:
+        await update.message.reply_text(
+            "Использование:\n"
+            "`/result код|соперник|счёт|комментарий`\n\n"
+            "Пример:\n"
+            "`/result MF|Локомотив|2:1|Победа в дерби!`\n\n"
+            "Коды: MF, JF, HK, BG, VB, MG, ZHG, PF, BF",
+            parse_mode="Markdown"
+        )
+        return
+
+    raw = " ".join(context.args)
+    parts = raw.split("|")
+    if len(parts) < 3:
+        await update.message.reply_text("❌ Нужно минимум 3 поля: код|соперник|счёт")
+        return
+
+    sport_code = parts[0].strip()
+    opponent = parts[1].strip()
+    score = parts[2].strip()
+    comment = parts[3].strip() if len(parts) > 3 else ""
+    sport_name = SPORT_NAMES.get(sport_code, sport_code)
+
+    text = (
+        f"🏁 *Матч завершён!*\n\n"
+        f"{sport_name}\n"
+        f"🆚 ЦСКА — {opponent}\n"
+        f"🔢 Счёт: *{score}*"
+    )
+    if comment:
+        text += f"\n\n💬 {comment}"
+
+    subscriptions = get_all_subscriptions()
+    sent = 0
+    failed = 0
+    for user_id, subs in subscriptions.items():
+        if sport_code in subs:
+            try:
+                await context.bot.send_message(chat_id=user_id, text=text, parse_mode="Markdown")
+                sent += 1
+            except Exception as e:
+                logger.error(f"Result error {user_id}: {e}")
+                failed += 1
+
+    await update.message.reply_text(
+        f"✅ Результат отправлен!\n\nПолучили: {sent}\nОшибок: {failed}"
+    )
+
 @admin_only
 async def reset_reminders_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Сбросить все отправленные напоминания"""
@@ -685,6 +737,7 @@ async def set_bot_commands(app: Application):
         BotCommand("broadcast", "📢 Рассылка всем"),
         BotCommand("add_match", "➕ Добавить матч вручную"),
         BotCommand("reset_reminders", "🔄 Сбросить отправленные напоминания"),
+        BotCommand("result", "🏁 Отправить результат матча"),
     ]
     from telegram import BotCommandScopeChat
     await app.bot.set_my_commands(
@@ -704,6 +757,7 @@ def main():
     app.add_handler(CommandHandler("broadcast", broadcast_command))
     app.add_handler(CommandHandler("add_match", add_match_command))
     app.add_handler(CommandHandler("reset_reminders", reset_reminders_command))
+    app.add_handler(CommandHandler("result", result_command))
     app.add_handler(CallbackQueryHandler(button_handler))
 
     # Два планировщика:
