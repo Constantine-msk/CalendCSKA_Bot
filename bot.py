@@ -164,6 +164,69 @@ def get_manual_matches():
         logger.error(f"Ошибка загрузки ручных матчей: {e}")
     return matches
 
+
+def get_group_subs(chat_id):
+    conn = sqlite3.connect("/app/bot.db")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS group_subscriptions (
+            chat_id INTEGER,
+            sport_code TEXT,
+            PRIMARY KEY (chat_id, sport_code)
+        )
+    """)
+    rows = conn.execute(
+        "SELECT sport_code FROM group_subscriptions WHERE chat_id=?", (chat_id,)
+    ).fetchall()
+    conn.close()
+    return set(r[0] for r in rows)
+
+def toggle_group_sub(chat_id, sport_code):
+    conn = sqlite3.connect("/app/bot.db")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS group_subscriptions (
+            chat_id INTEGER,
+            sport_code TEXT,
+            PRIMARY KEY (chat_id, sport_code)
+        )
+    """)
+    exists = conn.execute(
+        "SELECT 1 FROM group_subscriptions WHERE chat_id=? AND sport_code=?",
+        (chat_id, sport_code)
+    ).fetchone()
+    if exists:
+        conn.execute(
+            "DELETE FROM group_subscriptions WHERE chat_id=? AND sport_code=?",
+            (chat_id, sport_code)
+        )
+        action = "отписалась от"
+    else:
+        conn.execute(
+            "INSERT INTO group_subscriptions VALUES (?,?)",
+            (chat_id, sport_code)
+        )
+        action = "подписалась на"
+    conn.commit()
+    conn.close()
+    return action
+
+def clear_group_subs(chat_id):
+    conn = sqlite3.connect("/app/bot.db")
+    conn.execute("DELETE FROM group_subscriptions WHERE chat_id=?", (chat_id,))
+    conn.commit()
+    conn.close()
+
+def get_all_group_subscriptions():
+    conn = sqlite3.connect("/app/bot.db")
+    try:
+        rows = conn.execute("SELECT chat_id, sport_code FROM group_subscriptions").fetchall()
+    except Exception:
+        rows = []
+    conn.close()
+    result = {}
+    for chat_id, sport_code in rows:
+        result.setdefault(chat_id, set()).add(sport_code)
+    return result
+
 def get_matches():
     matches = []
     now = datetime.now()
@@ -444,6 +507,33 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await query.edit_message_text(share_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
+
+    elif data.startswith("gtoggle_"):
+        parts = data.split("_")
+        chat_id = int(parts[1])
+        sport_code = parts[2]
+        user = update.effective_user
+        member = await context.bot.get_chat_member(chat_id, user.id)
+        if member.status not in ["administrator", "creator"]:
+            await query.answer("⛔ Только администраторы могут менять подписки.", show_alert=True)
+            return
+        action = toggle_group_sub(chat_id, sport_code)
+        subs = get_group_subs(chat_id)
+        keyboard = []
+        for code, name in SPORT_NAMES.items():
+            label = f"✅ {name}" if code in subs else name
+            keyboard.append([InlineKeyboardButton(label, callback_data=f"gtoggle_{chat_id}_{code}")])
+        keyboard.append([InlineKeyboardButton("🔙 Закрыть", callback_data=f"gclose_{chat_id}")])
+        subs_text = "\n".join(f"• {SPORT_NAMES[c]}" for c in subs) if subs else "Пока нет"
+        await query.edit_message_text(
+            f"✅ Группа {action} {SPORT_NAMES[sport_code]}\n\n*Подписки:*\n{subs_text}",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+    elif data.startswith("gclose_"):
+        await query.delete_message()
+
     elif data == "next_all":
         matches = get_matches()
         if not matches:
@@ -508,6 +598,19 @@ async def send_reminders_daily(context: ContextTypes.DEFAULT_TYPE):
         elif match["location_type"] == "away" and days == 14:
             await _send_to_subscribers(context, match, "day14", subscriptions)
 
+
+    # Рассылка в группы
+    group_subscriptions = get_all_group_subscriptions()
+    for chat_id, subs in group_subscriptions.items():
+        if match["sport_code"] in subs:
+            try:
+                await context.bot.send_message(
+                    chat_id=chat_id,
+                    text=format_match(match),
+                    parse_mode="Markdown"
+                )
+            except Exception as e:
+                logger.error(f"Group send error {chat_id}: {e}")
 async def send_reminders_3h(context: ContextTypes.DEFAULT_TYPE):
     """Запускается каждый час — ловит момент за 3 часа до матча"""
     logger.info("Проверка напоминаний за 3 часа...")
@@ -525,6 +628,51 @@ async def send_reminders_3h(context: ContextTypes.DEFAULT_TYPE):
         hours_left = diff.total_seconds() / 3600
         if 2.5 <= hours_left <= 3.5:
             await _send_to_subscribers(context, match, "3h", subscriptions)
+
+
+async def group_subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Подписать группу на уведомления. Только для админов группы."""
+    chat = update.effective_chat
+    user = update.effective_user
+
+    if chat.type not in ["group", "supergroup"]:
+        await update.message.reply_text("Эта команда только для групп.")
+        return
+
+    # Проверяем что пользователь — админ группы
+    member = await context.bot.get_chat_member(chat.id, user.id)
+    if member.status not in ["administrator", "creator"]:
+        await update.message.reply_text("⛔ Только администраторы группы могут управлять подписками.")
+        return
+
+    subs = get_group_subs(chat.id)
+    keyboard = []
+    for code, name in SPORT_NAMES.items():
+        label = f"✅ {name}" if code in subs else name
+        keyboard.append([InlineKeyboardButton(label, callback_data=f"gtoggle_{chat.id}_{code}")])
+    keyboard.append([InlineKeyboardButton("🔙 Закрыть", callback_data=f"gclose_{chat.id}")])
+
+    await update.message.reply_text(
+        "📋 *Подписки группы на уведомления ЦСКА:*\n\n"
+        "✅ — уже подписана\n"
+        "Нажми на команду чтобы подписаться или отписаться.",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+async def group_status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показать текущие подписки группы."""
+    chat = update.effective_chat
+    if chat.type not in ["group", "supergroup"]:
+        await update.message.reply_text("Эта команда только для групп.")
+        return
+
+    subs = get_group_subs(chat.id)
+    if subs:
+        text = "📋 *Подписки этой группы:*\n\n" + "\n".join(f"• {SPORT_NAMES[c]}" for c in subs)
+    else:
+        text = "❌ Группа ни на что не подписана.\nИспользуй /group_subscribe чтобы подписаться."
+    await update.message.reply_text(text, parse_mode="Markdown")
 
 # ========== АДМИН ==========
 def admin_only(func):
@@ -758,6 +906,8 @@ def main():
     app.add_handler(CommandHandler("add_match", add_match_command))
     app.add_handler(CommandHandler("reset_reminders", reset_reminders_command))
     app.add_handler(CommandHandler("result", result_command))
+    app.add_handler(CommandHandler("group_subscribe", group_subscribe_command))
+    app.add_handler(CommandHandler("group_status", group_status_command))
     app.add_handler(CallbackQueryHandler(button_handler))
 
     # Два планировщика:
