@@ -113,6 +113,44 @@ def mark_reminder_sent(reminder_id):
     conn.commit()
     conn.close()
 
+
+# ========== ГОРОДА И КООРДИНАТЫ ==========
+CITY_COORDS = {
+    "Москва": (55.75, 37.62),
+    "Санкт-Петербург": (59.93, 30.32),
+    "Казань": (55.79, 49.12),
+    "Краснодар": (45.04, 38.98),
+    "Екатеринбург": (56.84, 60.60),
+    "Уфа": (54.74, 55.97),
+    "Самара": (53.20, 50.15),
+    "Ростов-на-Дону": (47.23, 39.72),
+    "Нижний Новгород": (56.33, 44.00),
+    "Новосибирск": (54.99, 82.90),
+}
+
+WMO_CODES = {
+    0: "☀️ Ясно",
+    1: "🌤 Преимущественно ясно",
+    2: "⛅️ Переменная облачность",
+    3: "☁️ Пасмурно",
+    45: "🌫 Туман",
+    48: "🌫 Туман с изморозью",
+    51: "🌦 Лёгкая морось",
+    53: "🌦 Морось",
+    55: "🌧 Сильная морось",
+    61: "🌧 Лёгкий дождь",
+    63: "🌧 Дождь",
+    65: "🌧 Сильный дождь",
+    71: "🌨 Лёгкий снег",
+    73: "🌨 Снег",
+    75: "❄️ Сильный снег",
+    80: "🌦 Ливень",
+    81: "🌧 Сильный ливень",
+    95: "⛈ Гроза",
+    96: "⛈ Гроза с градом",
+    99: "⛈ Сильная гроза с градом",
+}
+
 # ========== ЗАГРУЗКА РАСПИСАНИЯ ==========
 def get_manual_matches():
     """Загружает матчи добавленные вручную через /add_match"""
@@ -298,6 +336,48 @@ def get_matches():
 
     return sorted(matches, key=lambda x: x["date"])
 
+
+def get_weather(city: str, date) -> str:
+    """Получает погоду для города на указанную дату"""
+    try:
+        # Ищем координаты города
+        coords = None
+        for city_name, c in CITY_COORDS.items():
+            if city_name.lower() in city.lower():
+                coords = c
+                break
+
+        if not coords:
+            return ""  # Город не найден — не показываем погоду
+
+        lat, lon = coords
+        target_date = date.strftime("%Y-%m-%d")
+
+        url = "https://api.open-meteo.com/v1/forecast"
+        params = {
+            "latitude": lat,
+            "longitude": lon,
+            "daily": ["temperature_2m_max", "temperature_2m_min", "precipitation_sum", "weathercode"],
+            "timezone": "Europe/Moscow",
+            "start_date": target_date,
+            "end_date": target_date,
+        }
+        r = requests.get(url, params=params, timeout=5)
+        data = r.json()
+
+        temp_max = round(data["daily"]["temperature_2m_max"][0])
+        temp_min = round(data["daily"]["temperature_2m_min"][0])
+        precip = data["daily"]["precipitation_sum"][0]
+        wcode = data["daily"]["weathercode"][0]
+
+        weather_desc = WMO_CODES.get(wcode, "Переменная облачность")
+        rain_str = f"🌂 Осадки: {precip} мм" if precip > 0.5 else "☂️ Осадков не ожидается"
+
+        return f"🌡 Погода: {temp_min}°..{temp_max}°C, {weather_desc}\n{rain_str}"
+    except Exception as e:
+        logger.warning(f"Погода недоступна: {e}")
+        return ""
+
 def format_match(match):
     import locale
     try:
@@ -353,6 +433,12 @@ def format_match(match):
         f"⏰ До матча: {days_str}\n"
         f"{status}"
     )
+    # Погода только для домашних матчей или если есть город
+    weather = ""
+    if match.get("city"):
+        weather = get_weather(match["city"], match["date"])
+    if weather:
+        text += f"\n\n{weather}"
     if match.get("notes"):
         text += f"\n📝 {match['notes']}"
     return text
