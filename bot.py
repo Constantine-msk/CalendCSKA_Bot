@@ -411,7 +411,7 @@ def format_match(match):
         status = "✅ Идем на стадион!"
 
     hours_left = (match["date"] - now).total_seconds() / 3600
-    if hours_left <= 3.5:
+    if hours_left <= 4.0:
         days_str = "Уже через 3 часа! 🔥"
     elif days == 0:
         days_str = "Сегодня! 🔥"
@@ -424,7 +424,7 @@ def format_match(match):
 
     text = (
         f"{home_away}\n"
-        f"{sport_name}\n"
+        f"{match['team_name']}\n"
         f"🏆 {match['tournament']}\n"
         f"🆚 {match['opponent']}\n"
         f"📅 {match['date'].strftime('%d.%m.%Y, %A')}\n"
@@ -712,7 +712,7 @@ async def send_reminders_3h(context: ContextTypes.DEFAULT_TYPE):
             continue
 
         hours_left = diff.total_seconds() / 3600
-        if 2.5 <= hours_left <= 3.5:
+        if 3.0 <= hours_left <= 4.0:
             await _send_to_subscribers(context, match, "3h", subscriptions)
 
 
