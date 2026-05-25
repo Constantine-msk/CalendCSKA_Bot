@@ -4,6 +4,7 @@ import csv
 import sqlite3
 import os
 import pytz
+import aiohttp
 from io import StringIO
 from datetime import datetime, time as dtime
 from dotenv import load_dotenv
@@ -337,10 +338,9 @@ def get_matches():
     return sorted(matches, key=lambda x: x["date"])
 
 
-def get_weather(city: str, date) -> str:
-    """Получает погоду для города на указанную дату"""
+async def get_weather(city: str, date) -> str:
+    """Получает погоду для города на указанную дату (асинхронно)"""
     try:
-        # Ищем координаты города
         coords = None
         for city_name, c in CITY_COORDS.items():
             if city_name.lower() in city.lower():
@@ -348,7 +348,7 @@ def get_weather(city: str, date) -> str:
                 break
 
         if not coords:
-            return ""  # Город не найден — не показываем погоду
+            return ""
 
         lat, lon = coords
         target_date = date.strftime("%Y-%m-%d")
@@ -357,13 +357,14 @@ def get_weather(city: str, date) -> str:
         params = {
             "latitude": lat,
             "longitude": lon,
-            "daily": ["temperature_2m_max", "temperature_2m_min", "precipitation_sum", "weathercode"],
+            "daily": "temperature_2m_max,temperature_2m_min,precipitation_sum,weathercode",
             "timezone": "Europe/Moscow",
             "start_date": target_date,
             "end_date": target_date,
         }
-        r = requests.get(url, params=params, timeout=5)
-        data = r.json()
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params, timeout=aiohttp.ClientTimeout(total=10)) as r:
+                data = await r.json()
 
         temp_max = round(data["daily"]["temperature_2m_max"][0])
         temp_min = round(data["daily"]["temperature_2m_min"][0])
@@ -378,7 +379,7 @@ def get_weather(city: str, date) -> str:
         logger.warning(f"Погода недоступна: {e}")
         return ""
 
-def format_match(match):
+async def format_match(match):
     import locale
     try:
         locale.setlocale(locale.LC_TIME, "ru_RU.UTF-8")
@@ -411,7 +412,7 @@ def format_match(match):
         status = "✅ Идем на стадион!"
 
     hours_left = (match["date"] - now).total_seconds() / 3600
-    if hours_left <= 4.0:
+    if 3.0 <= hours_left <= 4.0:
         days_str = "Уже через 3 часа! 🔥"
     elif days == 0:
         days_str = "Сегодня! 🔥"
@@ -436,7 +437,7 @@ def format_match(match):
     # Погода только для домашних матчей или если есть город
     weather = ""
     if match.get("city"):
-        weather = get_weather(match["city"], match["date"])
+        weather = await get_weather(match["city"], match["date"])
     if weather:
         text += f"\n\n{weather}"
     if match.get("notes"):
@@ -650,7 +651,7 @@ async def _send_to_subscribers(context, match, remind_type, subscriptions):
             try:
                 await context.bot.send_message(
                     chat_id=user_id,
-                    text=format_match(match),
+                    text=await format_match(match),
                     parse_mode="Markdown"
                 )
                 logger.info(f"Отправлено {user_id}: {reminder_id}")
@@ -692,7 +693,7 @@ async def send_reminders_daily(context: ContextTypes.DEFAULT_TYPE):
             try:
                 await context.bot.send_message(
                     chat_id=chat_id,
-                    text=format_match(match),
+                    text=await format_match(match),
                     parse_mode="Markdown"
                 )
             except Exception as e:
@@ -960,7 +961,6 @@ async def add_match_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def set_bot_commands(app: Application):
     commands = [
         BotCommand("start", "🚀 Главное меню"),
-        BotCommand("menu", "📋 Главное меню"),
         BotCommand("my_matches", "📅 Мои ближайшие матчи"),
     ]
     await app.bot.set_my_commands(commands)
@@ -985,7 +985,6 @@ def main():
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("menu", menu_command))
     app.add_handler(CommandHandler("my_matches", my_matches_command))
     app.add_handler(CommandHandler("stats", stats_command))
     app.add_handler(CommandHandler("broadcast", broadcast_command))
