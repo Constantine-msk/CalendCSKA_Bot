@@ -9,7 +9,7 @@ from io import StringIO
 from datetime import datetime, time as dtime
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, BotCommand
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
 # ========== ТОКЕН ==========
 load_dotenv()
@@ -453,6 +453,8 @@ def get_main_keyboard():
         [InlineKeyboardButton("📅 Ближайшие матчи", callback_data="next_all")],
         [InlineKeyboardButton("📋 Мои подписки", callback_data="my_subs")],
         [InlineKeyboardButton("➕ Подписаться на команду", callback_data="subscribe_menu")],
+        [InlineKeyboardButton("📊 Турнирные таблицы", callback_data="tables")],
+        [InlineKeyboardButton("📅 Экспорт в календарь", callback_data="export_cal")],
         [InlineKeyboardButton("📤 Поделиться ботом", url="https://t.me/share/url?url=https://t.me/CalendCSKA_Bot&text=Бот+с+расписанием+матчей+ЦСКА+%F0%9F%94%B4%F0%9F%94%B5")],
         [InlineKeyboardButton("❤️ Поддержать бота", url=SBP_URL)],
     ])
@@ -578,6 +580,100 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [InlineKeyboardButton("➕ Подписаться", callback_data="subscribe_menu")],
                 [InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")],
             ])
+        )
+
+    elif data == "export_cal":
+        user_id = update.effective_user.id
+        subs = get_user_subs(user_id)
+
+        if not subs:
+            await query.edit_message_text(
+                "❌ Вы ни на что не подписаны.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")]])
+            )
+            return
+
+        matches = get_matches()
+        my_matches = [m for m in matches if m["sport_code"] in subs]
+
+        if not my_matches:
+            await query.edit_message_text(
+                "❌ Нет ближайших матчей по вашим подпискам.",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")]])
+            )
+            return
+
+        lines = [
+            "BEGIN:VCALENDAR",
+            "VERSION:2.0",
+            "PRODID:-//Calend.CSKA Bot//RU",
+            "CALSCALE:GREGORIAN",
+            "METHOD:PUBLISH",
+            "X-WR-CALNAME:ЦСКА Матчи",
+            "X-WR-TIMEZONE:Europe/Moscow",
+        ]
+
+        for match in my_matches:
+            match_id = match["match_id"]
+            team = match["team_name"]
+            opponent = match["opponent"]
+            tournament = match["tournament"]
+            loc_type = "ДОМА" if match["location_type"] == "home" else "В ГОСТЯХ"
+            city = match.get("city", "")
+            stadium = match.get("stadium", "")
+            notes = match.get("notes", "")
+            dtstart = match["date"].strftime("%Y%m%dT%H%M%S")
+            dtend = match["date"].replace(hour=min(match["date"].hour + 2, 23)).strftime("%Y%m%dT%H%M%S")
+            location = ", ".join(filter(None, [city, stadium]))
+            description = f"{tournament}. {loc_type}"
+            if notes:
+                description += f". {notes}"
+
+            lines += [
+                "BEGIN:VEVENT",
+                f"UID:{match_id}@calendcska",
+                f"DTSTART;TZID=Europe/Moscow:{dtstart}",
+                f"DTEND;TZID=Europe/Moscow:{dtend}",
+                f"SUMMARY:{team} vs {opponent}",
+                f"LOCATION:{location}",
+                f"DESCRIPTION:{description}",
+                "END:VEVENT",
+            ]
+
+        lines.append("END:VCALENDAR")
+        ics_content = "\r\n".join(lines)
+
+        import io
+        ics_file = io.BytesIO(ics_content.encode("utf-8"))
+        ics_file.name = "cska_matches.ics"
+
+        await query.message.reply_document(
+            document=ics_file,
+            filename="cska_matches.ics",
+            caption=(
+                f"📅 *Календарь матчей ЦСКА*\n\n"
+                f"В файле {len(my_matches)} матчей по вашим подпискам.\n\n"
+                "Откройте файл на телефоне — матчи добавятся в ваш календарь!"
+            ),
+            parse_mode="Markdown"
+        )
+
+    elif data == "tables":
+        keyboard = [
+            [InlineKeyboardButton("⚽ РПЛ (мужской футбол)", url="https://premierliga.ru/tournament-table/")],
+            [InlineKeyboardButton("⚽ Суперлига (женский футбол)", url="https://wfl.ru/tournaments/superleague/table/")],
+            [InlineKeyboardButton("🏒 КХЛ", url="https://www.khl.ru/standings/")],
+            [InlineKeyboardButton("🏀 Единая лига ВТБ", url="https://www.vtbleague.ru/ru/standings")],
+            [InlineKeyboardButton("🏐 Суперлига (волейбол муж.)", url="https://www.volley.ru/competitions/superleague/table/")],
+            [InlineKeyboardButton("🤾 Суперлига (гандбол муж.)", url="https://handball.ru/tournaments/superleague/")],
+            [InlineKeyboardButton("🤾 Суперлига (гандбол жен.)", url="https://handball.ru/tournaments/superleague-women/")],
+            [InlineKeyboardButton("⚽ Суперлига (мини-футбол)", url="https://amfr.ru/competitions/superleague/")],
+            [InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")],
+        ]
+        await query.edit_message_text(
+            "📊 *Турнирные таблицы*\n\nВыбери лигу — откроется официальный сайт:",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
     elif data == "share":
@@ -760,6 +856,124 @@ async def group_status_command(update: Update, context: ContextTypes.DEFAULT_TYP
     else:
         text = "❌ Группа ни на что не подписана.\nИспользуй /group_subscribe чтобы подписаться."
     await update.message.reply_text(text, parse_mode="Markdown")
+
+
+async def tables_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Ссылки на турнирные таблицы"""
+    keyboard = [
+        [InlineKeyboardButton("⚽ РПЛ (мужской футбол)", url="https://premierliga.ru/tournament-table/")],
+        [InlineKeyboardButton("⚽ Суперлига (женский футбол)", url="https://wfl.ru/tournaments/superleague/table/")],
+        [InlineKeyboardButton("🏒 КХЛ", url="https://www.khl.ru/standings/")],
+        [InlineKeyboardButton("🏀 Единая лига ВТБ", url="https://www.vtbleague.ru/ru/standings")],
+        [InlineKeyboardButton("🏐 Суперлига (волейбол муж.)", url="https://www.volley.ru/competitions/superleague/table/")],
+        [InlineKeyboardButton("🤾 Суперлига (гандбол муж.)", url="https://handball.ru/tournaments/superleague/")],
+        [InlineKeyboardButton("🤾 Суперлига (гандбол жен.)", url="https://handball.ru/tournaments/superleague-women/")],
+        [InlineKeyboardButton("⚽ Суперлига (мини-футбол)", url="https://amfr.ru/competitions/superleague/")],
+    ]
+    await update.message.reply_text(
+        "📊 *Турнирные таблицы*\n\n"
+        "Выбери лигу — откроется официальный сайт:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+async def export_calendar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Генерирует .ics файл с матчами по подпискам пользователя"""
+    user_id = update.effective_user.id
+    subs = get_user_subs(user_id)
+
+    if not subs:
+        await update.message.reply_text("❌ Вы ни на что не подписаны. Нажмите /start")
+        return
+
+    matches = get_matches()
+    my_matches = [m for m in matches if m["sport_code"] in subs]
+
+    if not my_matches:
+        await update.message.reply_text("❌ Нет ближайших матчей по вашим подпискам")
+        return
+
+    # Генерируем .ics
+    lines = [
+        "BEGIN:VCALENDAR",
+        "VERSION:2.0",
+        "PRODID:-//Calend.CSKA Bot//RU",
+        "CALSCALE:GREGORIAN",
+        "METHOD:PUBLISH",
+        "X-WR-CALNAME:ЦСКА Матчи",
+        "X-WR-TIMEZONE:Europe/Moscow",
+    ]
+
+    for match in my_matches:
+        uid = f"{match['match_id']}@calendcska"
+        dtstart = match["date"].strftime("%Y%m%dT%H%M%S")
+        dtend = (match["date"].replace(hour=match["date"].hour + 2)).strftime("%Y%m%dT%H%M%S")
+        summary = f"{match['team_name']} vs {match['opponent']}"
+        location = ", ".join(filter(None, [match.get("city", ""), match.get("stadium", "")]))
+        description = f"{match['tournament']}. {'ДОМА' if match['location_type'] == 'home' else 'В ГОСТЯХ'}"
+        if match.get("notes"):
+            description += f". {match['notes']}"
+        if match["boycott"] == "full":
+            description += ". ❌ ПОЛНЫЙ БОЙКОТ"
+        elif match["boycott"] == "partial":
+            description += ". 📺 Частичный бойкот"
+
+        lines += [
+            "BEGIN:VEVENT",
+            f"UID:{uid}",
+            f"DTSTART;TZID=Europe/Moscow:{dtstart}",
+            f"DTEND;TZID=Europe/Moscow:{dtend}",
+            f"SUMMARY:{summary}",
+            f"LOCATION:{location}",
+            f"DESCRIPTION:{description}",
+            "END:VEVENT",
+        ]
+
+    lines.append("END:VCALENDAR")
+    ics_content = "\r\n".join(lines)
+
+    # Отправляем файл
+    import io
+    ics_bytes = ics_content.encode("utf-8")
+    ics_file = io.BytesIO(ics_bytes)
+    ics_file.name = "cska_matches.ics"
+
+    await update.message.reply_document(
+        document=ics_file,
+        filename="cska_matches.ics",
+        caption=(
+            "📅 *Календарь матчей ЦСКА*\n\n"
+            f"В файле {len(my_matches)} матчей по вашим подпискам.\n\n"
+            "Откройте файл на телефоне — матчи добавятся в ваш календарь!"
+        ),
+        parse_mode="Markdown"
+    )
+
+
+# ========== ТРИГГЕРЫ В ГРУППАХ ==========
+TRIGGERS = {
+    "цска": "Всегда будет первым! 🔴🔵",
+    "я никогда не устану повторять": "Е5, Спартак, е5! 🐷",
+    "мы цска": "Мы победим! ✊🔴🔵",
+}
+
+async def group_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Реагирует на ключевые слова в группах"""
+    chat = update.effective_chat
+    if chat.type not in ["group", "supergroup"]:
+        return
+
+    message = update.message
+    if not message or not message.text:
+        return
+
+    text_lower = message.text.lower().strip()
+
+    for trigger, response in TRIGGERS.items():
+        if trigger in text_lower:
+            await message.reply_text(response)
+            return
 
 # ========== АДМИН ==========
 def admin_only(func):
@@ -962,6 +1176,8 @@ async def set_bot_commands(app: Application):
     commands = [
         BotCommand("start", "🚀 Главное меню"),
         BotCommand("my_matches", "📅 Мои ближайшие матчи"),
+        BotCommand("tables", "📊 Турнирные таблицы"),
+        BotCommand("export", "📅 Экспорт матчей в календарь"),
     ]
     await app.bot.set_my_commands(commands)
 
@@ -991,9 +1207,12 @@ def main():
     app.add_handler(CommandHandler("add_match", add_match_command))
     app.add_handler(CommandHandler("reset_reminders", reset_reminders_command))
     app.add_handler(CommandHandler("result", result_command))
+    app.add_handler(CommandHandler("tables", tables_command))
+    app.add_handler(CommandHandler("export", export_calendar_command))
     app.add_handler(CommandHandler("group_subscribe", group_subscribe_command))
     app.add_handler(CommandHandler("group_status", group_status_command))
     app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, group_message_handler))
 
     # Два планировщика:
     # 1. В 10:00 МСК — напоминания за 7/14/1 день и в день матча
