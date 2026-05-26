@@ -664,14 +664,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "tables":
         keyboard = [
-            [InlineKeyboardButton("⚽ РПЛ (мужской футбол)", url="https://premierliga.ru/tournament-table/")],
-            [InlineKeyboardButton("⚽ Суперлига (женский футбол)", url="https://wfl.ru/tournaments/superleague/table/")],
-            [InlineKeyboardButton("🏒 КХЛ", url="https://www.khl.ru/standings/")],
-            [InlineKeyboardButton("🏀 Единая лига ВТБ", url="https://www.vtbleague.ru/ru/standings")],
-            [InlineKeyboardButton("🏐 Суперлига (волейбол муж.)", url="https://www.volley.ru/competitions/superleague/table/")],
-            [InlineKeyboardButton("🤾 Суперлига (гандбол муж.)", url="https://handball.ru/tournaments/superleague/")],
-            [InlineKeyboardButton("🤾 Суперлига (гандбол жен.)", url="https://handball.ru/tournaments/superleague-women/")],
-            [InlineKeyboardButton("⚽ Суперлига (мини-футбол)", url="https://amfr.ru/competitions/superleague/")],
+            [InlineKeyboardButton("⚽ ПФК ЦСКА — РПЛ", url="https://premierliga.ru/tournament-table/")],
+            [InlineKeyboardButton("⚽ ЖФК ЦСКА — Суперлига", url="https://wfl.ru/tournaments/superleague/table/")],
+            [InlineKeyboardButton("⚽ МФК ЦСКА — Суперлига", url="https://amfr.ru/competitions/superleague/")],
+            [InlineKeyboardButton("🏒 ПХК ЦСКА — КХЛ", url="https://www.khl.ru/standings/")],
+            [InlineKeyboardButton("🏒 Звезда — ВХЛ", url="https://allhockey.ru/stat/vhl/table")],
+            [InlineKeyboardButton("🏒 Красная Армия — МХЛ", url="https://mhl.khl.ru/standings/regular/")],
+            [InlineKeyboardButton("🏀 ПБК ЦСКА — ЕЛ ВТБ", url="https://www.vtbleague.ru/ru/standings")],
+            [InlineKeyboardButton("🏀 ПБК ЦСКА-2 — ЕМЛ ВТБ", url="https://www.vtbleague.ru/ru/standings")],
+            [InlineKeyboardButton("🏐 ПВК ЦСКА — Суперлига", url="https://www.volley.ru/competitions/superleague/table/")],
+            [InlineKeyboardButton("🤾 ПГК ЦСКА — Суперлига", url="https://handball.ru/tournaments/superleague/")],
+            [InlineKeyboardButton("🤾 ЖГК ЦСКА — Суперлига", url="https://handball.ru/tournaments/superleague-women/")],
             [InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")],
         ]
         await query.edit_message_text(
