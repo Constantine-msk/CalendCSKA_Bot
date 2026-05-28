@@ -415,10 +415,7 @@ async def format_match(match):
     else:
         status = "✅ Идем на стадион!"
 
-    hours_left = (match["date"] - now).total_seconds() / 3600
-    if 3.0 <= hours_left <= 4.0:
-        days_str = "Уже через 3 часа! 🔥"
-    elif days == 0:
+    if days == 0:
         days_str = "Сегодня! 🔥"
     elif days == 1:
         days_str = "1 день"
@@ -801,25 +798,6 @@ async def send_reminders_daily(context: ContextTypes.DEFAULT_TYPE):
                 )
             except Exception as e:
                 logger.error(f"Group send error {chat_id}: {e}")
-async def send_reminders_3h(context: ContextTypes.DEFAULT_TYPE):
-    """Запускается каждый час — ловит момент за 3 часа до матча"""
-    logger.info("Проверка напоминаний за 3 часа...")
-    matches = get_matches()
-    subscriptions = get_all_subscriptions()
-
-    for match in matches:
-        now = datetime.now()
-        diff = match["date"] - now
-        if diff.total_seconds() < 0:
-            continue
-        if match["boycott"] == "full":
-            continue
-
-        hours_left = diff.total_seconds() / 3600
-        if 3.0 <= hours_left <= 4.0:
-            await _send_to_subscribers(context, match, "3h", subscriptions)
-
-
 async def group_subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Подписать группу на уведомления. Только для админов группы."""
     chat = update.effective_chat
@@ -1228,8 +1206,6 @@ def main():
         send_reminders_daily,
         time=dtime(10, 0, tzinfo=moscow)
     )
-    # 2. Каждый час — напоминание за 3 часа до матча
-    app.job_queue.run_repeating(send_reminders_3h, interval=3600, first=60)
 
     app.post_init = set_bot_commands
 
