@@ -454,6 +454,7 @@ def get_main_keyboard():
         [InlineKeyboardButton("📅 Ближайшие матчи", callback_data="next_all")],
         [InlineKeyboardButton("📋 Мои подписки", callback_data="my_subs")],
         [InlineKeyboardButton("➕ Подписаться на команду", callback_data="subscribe_menu")],
+        [InlineKeyboardButton("✅ Подписаться на всех", callback_data="subscribe_all")],
         [InlineKeyboardButton("📊 Турнирные таблицы", callback_data="tables")],
         [InlineKeyboardButton("📅 Экспорт в календарь", callback_data="export_cal")],
         [InlineKeyboardButton("📤 Поделиться ботом", url="https://t.me/share/url?url=https://t.me/CalendCSKA_Bot&text=Бот+с+расписанием+матчей+ЦСКА+%F0%9F%94%B4%F0%9F%94%B5")],
@@ -462,6 +463,17 @@ def get_main_keyboard():
 
 # ========== КОМАНДЫ ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    if chat.type in ["group", "supergroup"]:
+        await update.message.reply_text(
+            "🔴🔵 *Calend.CSKA* в вашей группе!\n\n"
+            "Чтобы подписать группу на напоминания о матчах:\n"
+            "👉 /group_subscribe — выбрать команды\n"
+            "👉 /group_status — текущие подписки группы\n\n"
+            "Личные подписки и меню — в личке с ботом @CalendCSKA_Bot",
+            parse_mode="Markdown"
+        )
+        return
     await update.message.reply_text(
         "🔴🔵 *Слава ЦСКА*\n\n"
         "Здесь расписание матчей всех армейских команд.\n"
@@ -516,6 +528,41 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "🥅 *Главное меню*\n\nВыберите действие:",
             parse_mode="Markdown",
             reply_markup=get_main_keyboard()
+        )
+
+    elif data == "subscribe_all":
+        user_id = update.effective_user.id
+        for code in SPORT_NAMES:
+            conn = sqlite3.connect("/app/bot.db")
+            conn.execute("INSERT OR IGNORE INTO subscriptions VALUES (?,?)", (user_id, code))
+            conn.commit()
+            conn.close()
+        subs_text = "\n".join(f"• {SPORT_NAMES[c]}" for c in SPORT_NAMES)
+        await query.edit_message_text(
+            f"✅ Вы подписались на *все команды ЦСКА!*\n\n{subs_text}",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")]])
+        )
+
+    elif data == "subscribe_all_group":
+        user_id = update.effective_user.id
+        chat_id = update.effective_chat.id
+        member = await context.bot.get_chat_member(chat_id, user_id)
+        if member.status not in ["administrator", "creator"]:
+            await query.answer("⛔ Только администраторы могут управлять подписками группы.", show_alert=True)
+            return
+        for code in SPORT_NAMES:
+            conn = sqlite3.connect("/app/bot.db")
+            conn.execute("""CREATE TABLE IF NOT EXISTS group_subscriptions (
+                chat_id INTEGER, sport_code TEXT, PRIMARY KEY (chat_id, sport_code))""")
+            conn.execute("INSERT OR IGNORE INTO group_subscriptions VALUES (?,?)", (chat_id, code))
+            conn.commit()
+            conn.close()
+        subs_text = "\n".join(f"• {SPORT_NAMES[c]}" for c in SPORT_NAMES)
+        await query.edit_message_text(
+            f"✅ Группа подписана на *все команды ЦСКА!*\n\n{subs_text}",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("🔙 Закрыть", callback_data=f"gclose_{chat_id}")]])
         )
 
     elif data == "subscribe_menu":
@@ -818,6 +865,7 @@ async def group_subscribe_command(update: Update, context: ContextTypes.DEFAULT_
     for code, name in SPORT_NAMES.items():
         label = f"✅ {name}" if code in subs else name
         keyboard.append([InlineKeyboardButton(label, callback_data=f"gtoggle_{chat.id}_{code}")])
+    keyboard.append([InlineKeyboardButton("✅ Подписать группу на всех", callback_data="subscribe_all_group")])
     keyboard.append([InlineKeyboardButton("🔙 Закрыть", callback_data=f"gclose_{chat.id}")])
 
     await update.message.reply_text(
@@ -958,7 +1006,7 @@ async def group_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
     text_lower = message.text.lower().strip()
 
-    for trigger, response in TRIGGERS.items():
+    for trigger, response in TRIGGERS:
         if trigger in text_lower:
             await message.reply_text(response)
             return
