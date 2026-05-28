@@ -1274,23 +1274,32 @@ async def send_donate_reminder(context: ContextTypes.DEFAULT_TYPE):
 
 # ========== ЗАПУСК ==========
 async def set_bot_commands(app: Application):
-    commands = [
+    from telegram import BotCommandScopeChat, BotCommandScopeAllGroupChats
+
+    # Команды в личке
+    private_commands = [
         BotCommand("start", "🚀 Главное меню"),
         BotCommand("my_matches", "📅 Мои ближайшие матчи"),
         BotCommand("tables", "📊 Турнирные таблицы"),
         BotCommand("export", "📅 Экспорт матчей в календарь"),
     ]
-    await app.bot.set_my_commands(commands)
+    await app.bot.set_my_commands(private_commands)
 
-    # Отдельные команды для админа
-    admin_commands = commands + [
+    # Команды в группах
+    group_commands = [
+        BotCommand("group_subscribe", "📋 Подписать группу на матчи"),
+        BotCommand("group_status", "📊 Подписки группы"),
+    ]
+    await app.bot.set_my_commands(group_commands, scope=BotCommandScopeAllGroupChats())
+
+    # Команды для админа в личке
+    admin_commands = private_commands + [
         BotCommand("stats", "📊 Статистика пользователей"),
         BotCommand("broadcast", "📢 Рассылка всем"),
         BotCommand("add_match", "➕ Добавить матч вручную"),
-        BotCommand("reset_reminders", "🔄 Сбросить отправленные напоминания"),
+        BotCommand("reset_reminders", "🔄 Сбросить напоминания"),
         BotCommand("result", "🏁 Отправить результат матча"),
     ]
-    from telegram import BotCommandScopeChat
     await app.bot.set_my_commands(
         admin_commands,
         scope=BotCommandScopeChat(chat_id=ADMIN_ID)
