@@ -19,7 +19,7 @@ ADMIN_ID = int(os.getenv("ADMIN_ID", "125741486"))
 # ========== НАСТРОЙКИ ==========
 CSV_URL = "https://raw.githubusercontent.com/Constantine-msk/CalendCSKA_Bot/main/schedule.csv"
 TRIGGERS_URL = "https://raw.githubusercontent.com/Constantine-msk/CalendCSKA_Bot/main/triggers.json"
-DB_PATH = os.getenv("DB_PATH", DB_PATH)
+DB_PATH = os.getenv("DB_PATH", "/app/bot.db")
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
