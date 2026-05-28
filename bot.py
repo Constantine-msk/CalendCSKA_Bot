@@ -571,9 +571,11 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "subscribe_menu":
         subs = get_user_subs(user_id)
         keyboard = []
+        keyboard.append([InlineKeyboardButton("✅ Подписаться на всех", callback_data="subscribe_all")])
         for code, name in SPORT_NAMES.items():
             label = f"✅ {name}" if code in subs else name
             keyboard.append([InlineKeyboardButton(label, callback_data=f"toggle_{code}")])
+        keyboard.append([InlineKeyboardButton("🗑 Отписаться от всех", callback_data="unsubscribe_all")])
         keyboard.append([InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")])
 
         await query.edit_message_text(
