@@ -1241,6 +1241,37 @@ async def add_match_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {e}")
 
+
+async def send_donate_reminder(context: ContextTypes.DEFAULT_TYPE):
+    """Отправляет напоминание о донате 1 и 15 числа каждого месяца"""
+    conn = sqlite3.connect(DB_PATH)
+    user_ids = [row[0] for row in conn.execute("SELECT DISTINCT user_id FROM subscriptions").fetchall()]
+    conn.close()
+
+    text = (
+        "❤️ Бот работает благодаря вашей поддержке!\n\n"
+        "Если бот помогает следить за матчами ЦСКА — поддержи разработчика."
+        " Это помогает оплачивать сервер и развивать бота дальше.\n\n"
+        "Слава ЦСКА! 🔴🔵"
+    )
+    keyboard = InlineKeyboardMarkup([
+        [InlineKeyboardButton("❤️ Поддержать через СБП", url=SBP_URL)]
+    ])
+
+    sent = 0
+    for user_id in user_ids:
+        try:
+            await context.bot.send_message(
+                chat_id=user_id,
+                text=text,
+                parse_mode="Markdown",
+                reply_markup=keyboard
+            )
+            sent += 1
+        except Exception as e:
+            logger.error(f"Donate reminder error {user_id}: {e}")
+    logger.info(f"Донат-напоминание отправлено {sent} пользователям")
+
 # ========== ЗАПУСК ==========
 async def set_bot_commands(app: Application):
     commands = [
@@ -1291,6 +1322,10 @@ def main():
         send_reminders_daily,
         time=dtime(10, 0, tzinfo=moscow)
     )
+
+    # Донат-напоминание 1 и 15 числа в 12:00 МСК
+    app.job_queue.run_monthly(send_donate_reminder, when=dtime(12, 0, tzinfo=moscow), day=1)
+    app.job_queue.run_monthly(send_donate_reminder, when=dtime(12, 0, tzinfo=moscow), day=15)
 
     app.post_init = set_bot_commands
 
