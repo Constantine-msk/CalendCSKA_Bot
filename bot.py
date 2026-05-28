@@ -14,10 +14,12 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 # ========== ТОКЕН ==========
 load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = 125741486
+ADMIN_ID = int(os.getenv("ADMIN_ID", "125741486"))
 
 # ========== НАСТРОЙКИ ==========
 CSV_URL = "https://raw.githubusercontent.com/Constantine-msk/CalendCSKA_Bot/main/schedule.csv"
+TRIGGERS_URL = "https://raw.githubusercontent.com/Constantine-msk/CalendCSKA_Bot/main/triggers.json"
+DB_PATH = os.getenv("DB_PATH", DB_PATH)
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -43,7 +45,7 @@ SPORT_NAMES = {
 
 # ========== БАЗА ДАННЫХ ==========
 def init_db():
-    conn = sqlite3.connect("/app/bot.db")
+    conn = sqlite3.connect(DB_PATH)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS subscriptions (
             user_id INTEGER,
@@ -60,7 +62,7 @@ def init_db():
     conn.close()
 
 def get_user_subs(user_id):
-    conn = sqlite3.connect("/app/bot.db")
+    conn = sqlite3.connect(DB_PATH)
     rows = conn.execute(
         "SELECT sport_code FROM subscriptions WHERE user_id=?", (user_id,)
     ).fetchall()
@@ -68,7 +70,7 @@ def get_user_subs(user_id):
     return set(r[0] for r in rows)
 
 def toggle_sub(user_id, sport_code):
-    conn = sqlite3.connect("/app/bot.db")
+    conn = sqlite3.connect(DB_PATH)
     exists = conn.execute(
         "SELECT 1 FROM subscriptions WHERE user_id=? AND sport_code=?",
         (user_id, sport_code)
@@ -90,13 +92,13 @@ def toggle_sub(user_id, sport_code):
     return action
 
 def clear_user_subs(user_id):
-    conn = sqlite3.connect("/app/bot.db")
+    conn = sqlite3.connect(DB_PATH)
     conn.execute("DELETE FROM subscriptions WHERE user_id=?", (user_id,))
     conn.commit()
     conn.close()
 
 def get_all_subscriptions():
-    conn = sqlite3.connect("/app/bot.db")
+    conn = sqlite3.connect(DB_PATH)
     rows = conn.execute("SELECT user_id, sport_code FROM subscriptions").fetchall()
     conn.close()
     result = {}
@@ -105,7 +107,7 @@ def get_all_subscriptions():
     return result
 
 def is_reminder_sent(reminder_id):
-    conn = sqlite3.connect("/app/bot.db")
+    conn = sqlite3.connect(DB_PATH)
     exists = conn.execute(
         "SELECT 1 FROM sent_reminders WHERE reminder_id=?", (reminder_id,)
     ).fetchone()
@@ -113,7 +115,7 @@ def is_reminder_sent(reminder_id):
     return bool(exists)
 
 def mark_reminder_sent(reminder_id):
-    conn = sqlite3.connect("/app/bot.db")
+    conn = sqlite3.connect(DB_PATH)
     conn.execute("INSERT OR IGNORE INTO sent_reminders VALUES (?)", (reminder_id,))
     conn.commit()
     conn.close()
@@ -157,12 +159,12 @@ WMO_CODES = {
 }
 
 # ========== ЗАГРУЗКА РАСПИСАНИЯ ==========
-def get_manual_matches():
+async def get_manual_matches():
     """Загружает матчи добавленные вручную через /add_match"""
     matches = []
     now = datetime.now()
     try:
-        conn = sqlite3.connect("/app/bot.db")
+        conn = sqlite3.connect(DB_PATH)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS manual_matches (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -209,7 +211,7 @@ def get_manual_matches():
 
 
 def get_group_subs(chat_id):
-    conn = sqlite3.connect("/app/bot.db")
+    conn = sqlite3.connect(DB_PATH)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS group_subscriptions (
             chat_id INTEGER,
@@ -224,7 +226,7 @@ def get_group_subs(chat_id):
     return set(r[0] for r in rows)
 
 def toggle_group_sub(chat_id, sport_code):
-    conn = sqlite3.connect("/app/bot.db")
+    conn = sqlite3.connect(DB_PATH)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS group_subscriptions (
             chat_id INTEGER,
@@ -253,13 +255,13 @@ def toggle_group_sub(chat_id, sport_code):
     return action
 
 def clear_group_subs(chat_id):
-    conn = sqlite3.connect("/app/bot.db")
+    conn = sqlite3.connect(DB_PATH)
     conn.execute("DELETE FROM group_subscriptions WHERE chat_id=?", (chat_id,))
     conn.commit()
     conn.close()
 
 def get_all_group_subscriptions():
-    conn = sqlite3.connect("/app/bot.db")
+    conn = sqlite3.connect(DB_PATH)
     try:
         rows = conn.execute("SELECT chat_id, sport_code FROM group_subscriptions").fetchall()
     except Exception:
@@ -270,16 +272,17 @@ def get_all_group_subscriptions():
         result.setdefault(chat_id, set()).add(sport_code)
     return result
 
-def get_matches():
+async def get_matches():
     matches = []
     now = datetime.now()
 
     try:
-        response = requests.get(CSV_URL)
-        response.raise_for_status()
-        response.encoding = "utf-8"
+        async with aiohttp.ClientSession() as session:
+            async with session.get(CSV_URL, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                response.raise_for_status()
+                text = await response.text(encoding="utf-8")
 
-        csv_content = StringIO(response.text)
+        csv_content = StringIO(text)
         reader = csv.DictReader(csv_content)
 
         for row in reader:
@@ -335,7 +338,7 @@ def get_matches():
         logger.error(f"Ошибка загрузки CSV: {e}")
 
     # Добавляем ручные матчи
-    manual = get_manual_matches()
+    manual = await get_manual_matches()
     logger.info(f"Загружено {len(manual)} ручных матчей")
     matches.extend(manual)
 
@@ -495,7 +498,7 @@ async def my_matches_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await update.message.reply_text("❌ Вы ни на что не подписаны. Нажмите /start")
         return
 
-    all_matches = get_matches()
+    all_matches = await get_matches()
     my_matches = [m for m in all_matches if m["sport_code"] in subs]
 
     if not my_matches:
@@ -533,7 +536,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "subscribe_all":
         user_id = update.effective_user.id
         for code in SPORT_NAMES:
-            conn = sqlite3.connect("/app/bot.db")
+            conn = sqlite3.connect(DB_PATH)
             conn.execute("INSERT OR IGNORE INTO subscriptions VALUES (?,?)", (user_id, code))
             conn.commit()
             conn.close()
@@ -552,7 +555,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("⛔ Только администраторы могут управлять подписками группы.", show_alert=True)
             return
         for code in SPORT_NAMES:
-            conn = sqlite3.connect("/app/bot.db")
+            conn = sqlite3.connect(DB_PATH)
             conn.execute("""CREATE TABLE IF NOT EXISTS group_subscriptions (
                 chat_id INTEGER, sport_code TEXT, PRIMARY KEY (chat_id, sport_code))""")
             conn.execute("INSERT OR IGNORE INTO group_subscriptions VALUES (?,?)", (chat_id, code))
@@ -641,7 +644,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        matches = get_matches()
+        matches = await get_matches()
         my_matches = [m for m in matches if m["sport_code"] in subs]
 
         if not my_matches:
@@ -769,7 +772,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.delete_message()
 
     elif data == "next_all":
-        matches = get_matches()
+        matches = await get_matches()
         if not matches:
             text = "❌ Нет ближайших матчей"
         else:
@@ -809,7 +812,7 @@ async def _send_to_subscribers(context, match, remind_type, subscriptions):
 async def send_reminders_daily(context: ContextTypes.DEFAULT_TYPE):
     """Запускается в 10:00 МСК — напоминания за 14/7/1 день и в день матча"""
     logger.info("Ежедневная проверка напоминаний...")
-    matches = get_matches()
+    matches = await get_matches()
     subscriptions = get_all_subscriptions()
 
     for match in matches:
@@ -832,19 +835,52 @@ async def send_reminders_daily(context: ContextTypes.DEFAULT_TYPE):
         elif match["location_type"] == "away" and days == 14:
             await _send_to_subscribers(context, match, "day14", subscriptions)
 
-
     # Рассылка в группы
     group_subscriptions = get_all_group_subscriptions()
-    for chat_id, subs in group_subscriptions.items():
-        if match["sport_code"] in subs:
-            try:
-                await context.bot.send_message(
-                    chat_id=chat_id,
-                    text=await format_match(match),
-                    parse_mode="Markdown"
-                )
-            except Exception as e:
-                logger.error(f"Group send error {chat_id}: {e}")
+    for match in matches:
+        now = datetime.now()
+        diff = match["date"] - now
+        if diff.total_seconds() < 0:
+            continue
+        if match["boycott"] == "full":
+            continue
+        days = diff.days
+        need_remind = False
+        remind_type = ""
+        if match["date"].date() == now.date():
+            need_remind = True
+            remind_type = "day0_g"
+        elif days == 1:
+            need_remind = True
+            remind_type = "day1_g"
+        elif match["location_type"] == "home" and days == 7:
+            need_remind = True
+            remind_type = "day7_g"
+        elif match["location_type"] == "away" and days == 14:
+            need_remind = True
+            remind_type = "day14_g"
+        if not need_remind:
+            continue
+        reminder_id = f"{match['match_id']}_{remind_type}"
+        if is_reminder_sent(reminder_id):
+            continue
+        sent_any = False
+        for chat_id, subs in group_subscriptions.items():
+            if match["sport_code"] in subs:
+                try:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=await format_match(match),
+                        parse_mode="Markdown"
+                    )
+                    sent_any = True
+                except Exception as e:
+                    logger.error(f"Group send error {chat_id}: {e}")
+        if sent_any:
+            mark_reminder_sent(reminder_id)
+
+
+
 async def group_subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Подписать группу на уведомления. Только для админов группы."""
     chat = update.effective_chat
@@ -920,7 +956,7 @@ async def export_calendar_command(update: Update, context: ContextTypes.DEFAULT_
         await update.message.reply_text("❌ Вы ни на что не подписаны. Нажмите /start")
         return
 
-    matches = get_matches()
+    matches = await get_matches()
     my_matches = [m for m in matches if m["sport_code"] in subs]
 
     if not my_matches:
@@ -985,14 +1021,11 @@ async def export_calendar_command(update: Update, context: ContextTypes.DEFAULT_
 
 
 # ========== ТРИГГЕРЫ В ГРУППАХ ==========
-TRIGGERS = {
-    "ЦСКА": "Всегда будет первым! 🔴🔵",
-    "я никогда не устану повторять": "ебать, Спартак, ебать! 🐷",
-    "я никогда": "не устану повторять ебать, Спартак, ебать! 🐷",
-    "я никогда не устану": "повторять ебать, Спартак, ебать! 🐷",
-    "мы ЦСКА!": "Мы победим! ✊🔴🔵",
-    "столица одна": "Столица Москва! 🔴🔵",
-}
+TRIGGERS = [
+    ("я никогда не устану повторять", "Е5, Спартак, е5! 🐷"),
+    ("мы цска", "Мы победим! ✊🔴🔵"),
+    ("цска", "Всегда будет первым! 🔴🔵"),
+]
 
 async def group_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Реагирует на ключевые слова в группах"""
@@ -1006,7 +1039,8 @@ async def group_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
     text_lower = message.text.lower().strip()
 
-    for trigger, response in TRIGGERS:
+    triggers = await load_triggers()
+    for trigger, response in triggers:
         if trigger in text_lower:
             await message.reply_text(response)
             return
@@ -1076,7 +1110,7 @@ async def result_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 @admin_only
 async def reset_reminders_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Сбросить все отправленные напоминания"""
-    conn = sqlite3.connect("/app/bot.db")
+    conn = sqlite3.connect(DB_PATH)
     count = conn.execute("SELECT COUNT(*) FROM sent_reminders").fetchone()[0]
     conn.execute("DELETE FROM sent_reminders")
     conn.commit()
@@ -1089,7 +1123,7 @@ async def reset_reminders_command(update: Update, context: ContextTypes.DEFAULT_
 @admin_only
 async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Статистика пользователей"""
-    conn = sqlite3.connect("/app/bot.db")
+    conn = sqlite3.connect(DB_PATH)
     total_users = conn.execute("SELECT COUNT(DISTINCT user_id) FROM subscriptions").fetchone()[0]
     rows = conn.execute(
         "SELECT sport_code, COUNT(*) as cnt FROM subscriptions GROUP BY sport_code ORDER BY cnt DESC"
@@ -1114,7 +1148,7 @@ async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text = " ".join(context.args)
-    conn = sqlite3.connect("/app/bot.db")
+    conn = sqlite3.connect(DB_PATH)
     user_ids = [row[0] for row in conn.execute("SELECT DISTINCT user_id FROM subscriptions").fetchall()]
     conn.close()
 
@@ -1171,7 +1205,7 @@ async def add_match_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         team_name = SPORT_NAMES.get(sport_code, sport_code)
 
-        conn = sqlite3.connect("/app/bot.db")
+        conn = sqlite3.connect(DB_PATH)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS manual_matches (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
