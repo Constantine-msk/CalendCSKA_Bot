@@ -713,17 +713,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif data == "tables":
         keyboard = [
-            [InlineKeyboardButton("⚽ ПФК ЦСКА — РПЛ", url="https://premierliga.ru/tournament-table/")],
-            [InlineKeyboardButton("⚽ ЖФК ЦСКА — Суперлига", url="https://wfl.ru/tournaments/superleague/table/")],
-            [InlineKeyboardButton("⚽ МФК ЦСКА — Суперлига", url="https://amfr.ru/competitions/superleague/")],
-            [InlineKeyboardButton("🏒 ПХК ЦСКА — КХЛ", url="https://www.khl.ru/standings/")],
-            [InlineKeyboardButton("🏒 Звезда — ВХЛ", url="https://allhockey.ru/stat/vhl/table")],
-            [InlineKeyboardButton("🏒 Красная Армия — МХЛ", url="https://mhl.khl.ru/standings/regular/")],
-            [InlineKeyboardButton("🏀 ПБК ЦСКА — ЕЛ ВТБ", url="https://www.vtbleague.ru/ru/standings")],
-            [InlineKeyboardButton("🏀 ПБК ЦСКА-2 — ЕМЛ ВТБ", url="https://www.vtbleague.ru/ru/standings")],
-            [InlineKeyboardButton("🏐 ПВК ЦСКА — Суперлига", url="https://www.volley.ru/competitions/superleague/table/")],
-            [InlineKeyboardButton("🤾 ПГК ЦСКА — Суперлига", url="https://handball.ru/tournaments/superleague/")],
-            [InlineKeyboardButton("🤾 ЖГК ЦСКА — Суперлига", url="https://handball.ru/tournaments/superleague-women/")],
+            [InlineKeyboardButton("⚽ ПФК ЦСКА", url="https://premierliga.ru/tournament-table/?category=table&tournament=722&stage=0&match=all")],
+            [InlineKeyboardButton("⚽ ЖФК ЦСКА", url="https://wfl.rfs.ru/tournament/1061879/tables")],
+            [InlineKeyboardButton("⚽ МФК ЦСКА U18", url="https://futsal.rfs.ru/tournament/1056923/tables")],
+            [InlineKeyboardButton("🏒 ПХК ЦСКА", url="https://www.khl.ru/standings/")],
+            [InlineKeyboardButton("🏒 Звезда", url="https://star.cska-hockey.ru/scoreboard")],
+            [InlineKeyboardButton("🏒 Красная Армия", url="https://redarmy.cska-hockey.ru/matches/standing/61/2025_2026/")],
+            [InlineKeyboardButton("🏀 ПБК ЦСКА", url="https://cskabasket.ru/tournaments/")],
+            [InlineKeyboardButton("🏀 ПБК ЦСКА-2", url="https://cskabasket.ru/tournaments/")],
+            [InlineKeyboardButton("🏐 ПВК ЦСКА", url="https://pvccska.ru/vysshaya-liga-a-chempionat-rossii-2026/")],
+            [InlineKeyboardButton("🤾 ПГК ЦСКА", url="https://men.cskahandball.ru/match-center/50788/50838?table=y")],
+            [InlineKeyboardButton("🤾 ЖГК ЦСКА", url="https://women.cskahandball.ru/match-center/50788/50789?table=y")],
+            [InlineKeyboardButton("🏉 Регби-Клуб ЦСКА", url="https://www.cska-rugby.ru/")],
             [InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")],
         ]
         await query.edit_message_text(
@@ -932,14 +933,18 @@ async def group_status_command(update: Update, context: ContextTypes.DEFAULT_TYP
 async def tables_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ссылки на турнирные таблицы"""
     keyboard = [
-        [InlineKeyboardButton("⚽ РПЛ (мужской футбол)", url="https://premierliga.ru/tournament-table/")],
-        [InlineKeyboardButton("⚽ Суперлига (женский футбол)", url="https://wfl.ru/tournaments/superleague/table/")],
-        [InlineKeyboardButton("🏒 КХЛ", url="https://www.khl.ru/standings/")],
-        [InlineKeyboardButton("🏀 Единая лига ВТБ", url="https://www.vtbleague.ru/ru/standings")],
-        [InlineKeyboardButton("🏐 Суперлига (волейбол муж.)", url="https://www.volley.ru/competitions/superleague/table/")],
-        [InlineKeyboardButton("🤾 Суперлига (гандбол муж.)", url="https://handball.ru/tournaments/superleague/")],
-        [InlineKeyboardButton("🤾 Суперлига (гандбол жен.)", url="https://handball.ru/tournaments/superleague-women/")],
-        [InlineKeyboardButton("⚽ Суперлига (мини-футбол)", url="https://amfr.ru/competitions/superleague/")],
+        [InlineKeyboardButton("⚽ ПФК ЦСКА", url="https://premierliga.ru/tournament-table/?category=table&tournament=722&stage=0&match=all")],
+        [InlineKeyboardButton("⚽ ЖФК ЦСКА", url="https://wfl.rfs.ru/tournament/1061879/tables")],
+        [InlineKeyboardButton("⚽ МФК ЦСКА U18", url="https://futsal.rfs.ru/tournament/1056923/tables")],
+        [InlineKeyboardButton("🏒 ПХК ЦСКА", url="https://www.khl.ru/standings/")],
+        [InlineKeyboardButton("🏒 Звезда", url="https://star.cska-hockey.ru/scoreboard")],
+        [InlineKeyboardButton("🏒 Красная Армия", url="https://redarmy.cska-hockey.ru/matches/standing/61/2025_2026/")],
+        [InlineKeyboardButton("🏀 ПБК ЦСКА", url="https://cskabasket.ru/tournaments/")],
+        [InlineKeyboardButton("🏀 ПБК ЦСКА-2", url="https://cskabasket.ru/tournaments/")],
+        [InlineKeyboardButton("🏐 ПВК ЦСКА", url="https://pvccska.ru/vysshaya-liga-a-chempionat-rossii-2026/")],
+        [InlineKeyboardButton("🤾 ПГК ЦСКА", url="https://men.cskahandball.ru/match-center/50788/50838?table=y")],
+        [InlineKeyboardButton("🤾 ЖГК ЦСКА", url="https://women.cskahandball.ru/match-center/50788/50789?table=y")],
+        [InlineKeyboardButton("🏉 Регби-Клуб ЦСКА", url="https://www.cska-rugby.ru/")],
     ]
     await update.message.reply_text(
         "📊 *Турнирные таблицы*\n\n"
@@ -1023,6 +1028,22 @@ async def export_calendar_command(update: Update, context: ContextTypes.DEFAULT_
 
 
 # ========== ТРИГГЕРЫ В ГРУППАХ ==========
+async def load_triggers() -> list:
+    """Загружает триггеры из GitHub"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(TRIGGERS_URL, timeout=aiohttp.ClientTimeout(total=5)) as r:
+                data = await r.json(content_type=None)
+                return [(item["trigger"].lower(), item["response"]) for item in data]
+    except Exception as e:
+        logger.warning(f"Не удалось загрузить триггеры: {e}")
+        return [
+            ("я никогда не устану повторять", "Ебать, Спартак, ебать! 🐷"),
+            ("мы цска", "Мы победим! ✊🔴🔵"),
+            ("цска", "Всегда будет первым! 🔴🔵"),
+        ]
+
+
 TRIGGERS = [
     ("я никогда не устану повторять", "Е5, Спартак, е5! 🐷"),
     ("мы цска", "Мы победим! ✊🔴🔵"),
