@@ -1051,11 +1051,7 @@ TRIGGERS = [
 ]
 
 async def group_message_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Реагирует на ключевые слова в группах"""
-    chat = update.effective_chat
-    if chat.type not in ["group", "supergroup"]:
-        return
-
+    """Реагирует на ключевые слова везде — точное совпадение"""
     message = update.message
     if not message or not message.text:
         return
@@ -1064,7 +1060,7 @@ async def group_message_handler(update: Update, context: ContextTypes.DEFAULT_TY
 
     triggers = await load_triggers()
     for trigger, response in triggers:
-        if trigger in text_lower:
+        if text_lower == trigger:
             await message.reply_text(response)
             return
 
@@ -1345,7 +1341,7 @@ def main():
     app.add_handler(CommandHandler("group_subscribe", group_subscribe_command))
     app.add_handler(CommandHandler("group_status", group_status_command))
     app.add_handler(CallbackQueryHandler(button_handler))
-    app.add_handler(MessageHandler(filters.TEXT & filters.ChatType.GROUPS, group_message_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, group_message_handler))
 
     # Два планировщика:
     # 1. В 10:00 МСК — напоминания за 7/14/1 день и в день матча
