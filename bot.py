@@ -5,6 +5,8 @@ import sqlite3
 import os
 import pytz
 import aiohttp
+import io
+import locale
 from io import StringIO
 from datetime import datetime, time as dtime
 from dotenv import load_dotenv
@@ -389,7 +391,6 @@ async def get_weather(city: str, date) -> str:
         return ""
 
 async def format_match(match):
-    import locale
     try:
         locale.setlocale(locale.LC_TIME, "ru_RU.UTF-8")
     except Exception:
@@ -512,10 +513,11 @@ async def my_matches_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     for match in my_matches[:10]:
         emoji = "❌" if match["boycott"] == "full" else "📺" if match["boycott"] == "partial" else "✅"
         home_away = "🏠" if match["location_type"] == "home" else "✈️"
+        sport_emoji = SPORT_NAMES.get(match["sport_code"], "🏅")[:1]
         time_str = match["date"].strftime("%H:%M")
         if time_str == "00:00":
             time_str = ""
-        text += f"{home_away} {match['date'].strftime('%d.%m')} {time_str} {match['team_name']} vs {match['opponent']} {emoji}\n"
+        text += f"{home_away} {match['date'].strftime('%d.%m')} {time_str} {sport_emoji} {match['team_name']} vs {match['opponent']} {emoji}\n"
 
     keyboard = [[InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")]]
     await update.message.reply_text(
@@ -699,7 +701,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         lines.append("END:VCALENDAR")
         ics_content = "\r\n".join(lines)
 
-        import io
         ics_file = io.BytesIO(ics_content.encode("utf-8"))
         ics_file.name = "cska_matches.ics"
 
@@ -750,7 +751,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await query.edit_message_text(share_text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard))
 
-
     elif data.startswith("gtoggle_"):
         parts = data.split("_")
         chat_id = int(parts[1])
@@ -777,21 +777,65 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data.startswith("gclose_"):
         await query.delete_message()
 
-    elif data == "next_all":
+    # === НОВАЯ ФИЧА: Удаление ручных матчей ===
+    elif data.startswith("delmatch_"):
+        if update.effective_user.id != ADMIN_ID:
+            await query.answer("⛔ Нет доступа.", show_alert=True)
+            return
+            
+        match_id = data.split("_")[1]
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            conn.execute("DELETE FROM manual_matches WHERE id=?", (match_id,))
+            conn.commit()
+            conn.close()
+            await query.answer("✅ Матч удален!", show_alert=True)
+            await query.delete_message()
+        except Exception as e:
+            await query.answer(f"❌ Ошибка: {e}", show_alert=True)
+
+    # === НОВАЯ ФИЧА: Пагинация и эмодзи в "Ближайших матчах" ===
+    elif data == "next_all" or data.startswith("matches_page_"):
+        page = 0
+        if data.startswith("matches_page_"):
+            try:
+                page = int(data.split("_")[-1])
+            except ValueError:
+                page = 0
+
+        matches_per_page = 8 
         matches = await get_matches()
+        
         if not matches:
             text = "❌ Нет ближайших матчей"
+            keyboard = [[InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")]]
         else:
-            text = "📅 *Ближайшие матчи:*\n\n"
-            for match in matches[:10]:
-                emoji = "❌" if match["boycott"] == "full" else "📺" if match["boycott"] == "partial" else "✅"
+            total_pages = (len(matches) + matches_per_page - 1) // matches_per_page
+            start_idx = page * matches_per_page
+            end_idx = start_idx + matches_per_page
+            page_matches = matches[start_idx:end_idx]
+
+            text = f"📅 *Ближайшие матчи:* (стр. {page+1} из {total_pages})\n\n"
+            for match in page_matches:
+                status_emoji = "❌" if match["boycott"] == "full" else "📺" if match["boycott"] == "partial" else "✅"
                 home_away = "🏠" if match["location_type"] == "home" else "✈️"
+                sport_emoji = SPORT_NAMES.get(match["sport_code"], "🏅")[:1] 
                 time_str = match["date"].strftime("%H:%M")
                 if time_str == "00:00":
                     time_str = ""
-                text += f"{home_away} {match['date'].strftime('%d.%m')} {time_str} {match['team_name']} vs {match['opponent']} {emoji}\n"
+                text += f"{home_away} {match['date'].strftime('%d.%m')} {time_str} {sport_emoji} {match['team_name']} vs {match['opponent']} {status_emoji}\n"
 
-        keyboard = [[InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")]]
+            keyboard = []
+            nav_row = []
+            if page > 0:
+                nav_row.append(InlineKeyboardButton("⬅️ Назад", callback_data=f"matches_page_{page-1}"))
+            if page < total_pages - 1:
+                nav_row.append(InlineKeyboardButton("Вперед ➡️", callback_data=f"matches_page_{page+1}"))
+            
+            if nav_row:
+                keyboard.append(nav_row)
+            keyboard.append([InlineKeyboardButton("🔙 Главное меню", callback_data="main_menu")])
+
         await query.edit_message_text(
             text, parse_mode="Markdown", reply_markup=InlineKeyboardMarkup(keyboard)
         )
@@ -885,8 +929,6 @@ async def send_reminders_daily(context: ContextTypes.DEFAULT_TYPE):
         if sent_any:
             mark_reminder_sent(reminder_id)
 
-
-
 async def group_subscribe_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Подписать группу на уведомления. Только для админов группы."""
     chat = update.effective_chat
@@ -896,7 +938,6 @@ async def group_subscribe_command(update: Update, context: ContextTypes.DEFAULT_
         await update.message.reply_text("Эта команда только для групп.")
         return
 
-    # Проверяем что пользователь — админ группы
     member = await context.bot.get_chat_member(chat.id, user.id)
     if member.status not in ["administrator", "creator"]:
         await update.message.reply_text("⛔ Только администраторы группы могут управлять подписками.")
@@ -932,7 +973,6 @@ async def group_status_command(update: Update, context: ContextTypes.DEFAULT_TYP
         text = "❌ Группа ни на что не подписана.\nИспользуй /group_subscribe чтобы подписаться."
     await update.message.reply_text(text, parse_mode="Markdown")
 
-
 async def tables_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Ссылки на турнирные таблицы"""
     keyboard = [
@@ -956,7 +996,6 @@ async def tables_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
-
 async def export_calendar_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Генерирует .ics файл с матчами по подпискам пользователя"""
     user_id = update.effective_user.id
@@ -973,7 +1012,6 @@ async def export_calendar_command(update: Update, context: ContextTypes.DEFAULT_
         await update.message.reply_text("❌ Нет ближайших матчей по вашим подпискам")
         return
 
-    # Генерируем .ics
     lines = [
         "BEGIN:VCALENDAR",
         "VERSION:2.0",
@@ -1012,8 +1050,6 @@ async def export_calendar_command(update: Update, context: ContextTypes.DEFAULT_
     lines.append("END:VCALENDAR")
     ics_content = "\r\n".join(lines)
 
-    # Отправляем файл
-    import io
     ics_bytes = ics_content.encode("utf-8")
     ics_file = io.BytesIO(ics_bytes)
     ics_file.name = "cska_matches.ics"
@@ -1028,7 +1064,6 @@ async def export_calendar_command(update: Update, context: ContextTypes.DEFAULT_
         ),
         parse_mode="Markdown"
     )
-
 
 # ========== ТРИГГЕРЫ В ГРУППАХ ==========
 async def load_triggers() -> list:
@@ -1045,7 +1080,6 @@ async def load_triggers() -> list:
             ("мы цска", "Мы победим! ✊🔴🔵"),
             ("цска", "Всегда будет первым! 🔴🔵"),
         ]
-
 
 TRIGGERS = [
     ("я никогда не устану повторять", "Е5, Спартак, е5! 🐷"),
@@ -1077,6 +1111,35 @@ def admin_only(func):
         return await func(update, context)
     return wrapper
 
+@admin_only
+async def del_manual_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Показывает список ручных матчей для удаления"""
+    try:
+        conn = sqlite3.connect(DB_PATH)
+        rows = conn.execute("SELECT id, sport_code, opponent, date, time FROM manual_matches ORDER BY date").fetchall()
+        conn.close()
+    except Exception:
+        rows = []
+
+    if not rows:
+        await update.message.reply_text("❌ Нет матчей, добавленных вручную.")
+        return
+
+    keyboard = []
+    for row in rows:
+        match_id, sport_code, opponent, date_str, time_str = row
+        team_name = SPORT_NAMES.get(sport_code, sport_code)
+        time_display = time_str if time_str else "???:???"
+        label = f"🗑 {date_str} {time_display} {team_name} vs {opponent}"
+        keyboard.append([InlineKeyboardButton(label, callback_data=f"delmatch_{match_id}")])
+
+    keyboard.append([InlineKeyboardButton("🔙 Отмена", callback_data="main_menu")])
+    
+    await update.message.reply_text(
+        "🗑 *Удаление ручного матча:*\n\nВыбери матч для удаления:",
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 @admin_only
 async def result_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1263,7 +1326,6 @@ async def add_match_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except Exception as e:
         await update.message.reply_text(f"❌ Ошибка: {e}")
 
-
 async def send_donate_reminder(context: ContextTypes.DEFAULT_TYPE):
     """Отправляет напоминание о донате 1 и 15 числа каждого месяца"""
     conn = sqlite3.connect(DB_PATH)
@@ -1318,50 +1380,48 @@ async def set_bot_commands(app: Application):
     admin_commands = private_commands + [
         BotCommand("stats", "📊 Статистика пользователей"),
         BotCommand("broadcast", "📢 Рассылка всем"),
-        BotCommand("add_match", "➕ Добавить матч вручную"),
-        BotCommand("reset_reminders", "🔄 Сбросить напоминания"),
         BotCommand("result", "🏁 Отправить результат матча"),
+        BotCommand("add_match", "➕ Добавить матч вручную"),
+        BotCommand("del_manual", "🗑 Удалить ручной матч"),
+        BotCommand("reset_reminders", "🔄 Сбросить напоминания"),
     ]
-    await app.bot.set_my_commands(
-        admin_commands,
-        scope=BotCommandScopeChat(chat_id=ADMIN_ID)
-    )
+    await app.bot.set_my_commands(admin_commands, scope=BotCommandScopeChat(chat_id=ADMIN_ID))
 
-def main():
+
+def main() -> None:
     init_db()
-
     app = Application.builder().token(BOT_TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("menu", menu_command))
     app.add_handler(CommandHandler("my_matches", my_matches_command))
-    app.add_handler(CommandHandler("stats", stats_command))
-    app.add_handler(CommandHandler("broadcast", broadcast_command))
-    app.add_handler(CommandHandler("add_match", add_match_command))
-    app.add_handler(CommandHandler("reset_reminders", reset_reminders_command))
-    app.add_handler(CommandHandler("result", result_command))
     app.add_handler(CommandHandler("tables", tables_command))
     app.add_handler(CommandHandler("export", export_calendar_command))
     app.add_handler(CommandHandler("group_subscribe", group_subscribe_command))
     app.add_handler(CommandHandler("group_status", group_status_command))
+
+    # --- Админские команды ---
+    app.add_handler(CommandHandler("stats", stats_command))
+    app.add_handler(CommandHandler("broadcast", broadcast_command))
+    app.add_handler(CommandHandler("result", result_command))
+    app.add_handler(CommandHandler("add_match", add_match_command))
+    app.add_handler(CommandHandler("del_manual", del_manual_command))
+    app.add_handler(CommandHandler("reset_reminders", reset_reminders_command))
+
     app.add_handler(CallbackQueryHandler(button_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, group_message_handler))
 
-    # Два планировщика:
-    # 1. В 10:00 МСК — напоминания за 7/14/1 день и в день матча
     moscow = pytz.timezone("Europe/Moscow")
-    app.job_queue.run_daily(
-        send_reminders_daily,
-        time=dtime(10, 0, tzinfo=moscow)
-    )
-
-    # Донат-напоминание 1 и 15 числа в 12:00 МСК
+    app.job_queue.run_daily(send_reminders_daily, time=dtime(10, 0, tzinfo=moscow))
     app.job_queue.run_monthly(send_donate_reminder, when=dtime(12, 0, tzinfo=moscow), day=1)
     app.job_queue.run_monthly(send_donate_reminder, when=dtime(12, 0, tzinfo=moscow), day=15)
 
     app.post_init = set_bot_commands
 
     logger.info("Бот запущен!")
-    app.run_polling()
+    # drop_pending_updates=True не даст боту "спамить" старыми сообщениями после перезагрузки
+    # restart_on_error=True автоматически перезапустит бота, если сервер Telegram разорвет связь
+    app.run_polling(drop_pending_updates=True, restart_on_error=True)
 
 if __name__ == "__main__":
     main()
