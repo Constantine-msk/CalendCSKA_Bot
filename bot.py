@@ -70,8 +70,22 @@ def init_db():
     conn.execute("CREATE TABLE IF NOT EXISTS sent_reminders (reminder_id TEXT PRIMARY KEY)")
     conn.execute("CREATE TABLE IF NOT EXISTS group_subscriptions (chat_id INTEGER, sport_code TEXT, PRIMARY KEY (chat_id, sport_code))")
     conn.execute("CREATE TABLE IF NOT EXISTS manual_matches (id INTEGER PRIMARY KEY AUTOINCREMENT, sport_code TEXT, team_name TEXT, opponent TEXT, date TEXT, time TEXT, location_type TEXT, city TEXT, stadium TEXT, tournament TEXT, boycott TEXT, notes TEXT)")
+    conn.execute("CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, username TEXT, first_name TEXT, last_seen TEXT)")
     conn.commit()
     conn.close()
+
+def save_user(user):
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("INSERT OR REPLACE INTO users VALUES (?, ?, ?, ?)",
+        (user.id, user.username or "", user.first_name or "", datetime.now().strftime("%Y-%m-%d %H:%M")))
+    conn.commit()
+    conn.close()
+
+def get_all_users():
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute("SELECT user_id, username, first_name FROM users").fetchall()
+    conn.close()
+    return rows
 
 def get_user_subs(user_id):
     conn = sqlite3.connect(DB_PATH)
@@ -294,6 +308,8 @@ def get_tables_keyboard():
 # ========== КОМАНДЫ ==========
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat = update.effective_chat
+    if chat.type not in ["group", "supergroup"]:
+        save_user(update.effective_user)
     if chat.type in ["group", "supergroup"]:
         await update.message.reply_text(
             "🔴🔵 *Calend.CSKA* в вашей группе!\n\n"
@@ -620,8 +636,13 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     total_users = conn.execute("SELECT COUNT(DISTINCT user_id) FROM subscriptions").fetchone()[0]
     rows = conn.execute("SELECT sport_code, COUNT(*) as cnt FROM subscriptions GROUP BY sport_code ORDER BY cnt DESC").fetchall()
     conn.close()
-    text = f"📊 *Статистика*\n\nВсего пользователей с подписками: *{total_users}*\n\n*По командам:*\n"
+    all_users = get_all_users()
+    text = f"📊 *Статистика*\n\nВсего пользователей с подписками: *{total_users}*\nВсего известных пользователей: *{len(all_users)}*\n\n*По командам:*\n"
     for sport_code, cnt in rows: text += f"• {SPORT_NAMES.get(sport_code, sport_code)}: {cnt}\n"
+    text += "\n*Пользователи:*\n"
+    for user_id, username, first_name in all_users:
+        if username: text += f"• @{username} ({first_name})\n"
+        else: text += f"• {first_name} (id: {user_id})\n"
     await update.message.reply_text(text, parse_mode="Markdown")
 
 @admin_only
@@ -742,4 +763,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
