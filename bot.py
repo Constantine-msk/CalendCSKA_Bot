@@ -639,11 +639,18 @@ async def stats_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     all_users = get_all_users()
     text = f"📊 *Статистика*\n\nВсего пользователей с подписками: *{total_users}*\nВсего известных пользователей: *{len(all_users)}*\n\n*По командам:*\n"
     for sport_code, cnt in rows: text += f"• {SPORT_NAMES.get(sport_code, sport_code)}: {cnt}\n"
-    text += "\n*Пользователи:*\n"
-    for user_id, username, first_name in all_users:
-        if username: text += f"• @{username} ({first_name})\n"
-        else: text += f"• {first_name} (id: {user_id})\n"
     await update.message.reply_text(text, parse_mode="Markdown")
+
+    if all_users:
+        users_text = "👥 *Пользователи:*\n\n"
+        for user_id, username, first_name in all_users:
+            if username: users_text += f"• @{username} ({first_name})\n"
+            else: users_text += f"• {first_name} (id: {user_id})\n"
+            if len(users_text) > 3500:
+                await update.message.reply_text(users_text, parse_mode="Markdown")
+                users_text = ""
+        if users_text:
+            await update.message.reply_text(users_text, parse_mode="Markdown")
 
 @admin_only
 async def broadcast_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
